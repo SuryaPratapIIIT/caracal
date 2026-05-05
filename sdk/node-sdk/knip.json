@@ -1,9 +1,0 @@
-{
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["tests/**/*.ts"],
-  "ignore": [
-    "src/enterprise/index.ts",
-    "src/enterprise/license.ts",
-    "src/enterprise/sso.ts"
-  ]
-}
