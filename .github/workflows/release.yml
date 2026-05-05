@@ -1,0 +1,143 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Release pipeline: build CLI binaries, push runtime images to GHCR, publish GitHub Release on v* tags.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: garudex-labs
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  cli:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: pnpm install --frozen-lockfile
+      - name: Stamp version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf '%s\n' \
+            '// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.' \
+            '// Caracal, a product of Garudex Labs' \
+            '//' \
+            '// CLI version constant; CI rewrites this from the release tag before bun --compile.' \
+            '' \
+            "export const CARACAL_VERSION = '${VERSION}'" \
+            > apps/cli/src/runtime/version.ts
+          jq --arg v "${VERSION}" '.version = $v' apps/cli/package.json > apps/cli/package.json.new
+          mv apps/cli/package.json.new apps/cli/package.json
+      - run: pnpm --dir apps/cli build
+      - name: Generate checksums
+        working-directory: apps/cli/dist
+        run: sha256sum caracal-* > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries
+          path: apps/cli/dist/*
+
+  images:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: api
+            context: .
+            dockerfile: apps/api/Dockerfile
+          - name: sts
+            context: .
+            dockerfile: services/sts/Dockerfile
+          - name: gateway
+            context: .
+            dockerfile: services/gateway/Dockerfile
+          - name: audit
+            context: .
+            dockerfile: services/audit/Dockerfile
+          - name: coordinator
+            context: .
+            dockerfile: apps/agent-coordinator/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-${{ matrix.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+
+  publish:
+    needs: [cli, images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/caracal-*
+            dist/SHA256SUMS
+            install.sh

@@ -1,0 +1,15 @@
+{
+  "name": "caracal",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "caracal": "node apps/cli/bin/caracal.mjs",
+    "test": "pnpm run test:typescript && pnpm run test:go && pnpm run test:python",
+    "test:go": "go test ./packages/shared/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/caracalai-mcp-go/...",
+    "test:python": "PYTHONPATH=packages/caracalai-mcp-python python -m unittest discover -s tests/python -p 'test_*.py'",
+    "test:typescript": "pnpm --dir apps/api test && pnpm --dir apps/agent-coordinator test && pnpm --dir apps/cli test && pnpm --dir packages/ts-shared test && pnpm --dir packages/caracalai-agent test && pnpm --dir packages/caracalai-oauth test && pnpm --dir packages/caracalai-mcp test && pnpm --dir packages/caracalai-cloudflare test"
+  },
+  "devDependencies": {
+    "fastify": "^5.2.1"
+  }
+}
