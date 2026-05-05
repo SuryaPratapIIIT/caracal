@@ -67,13 +67,19 @@ jobs:
           jq --arg v "${VERSION}" '.version = $v' apps/cli/package.json > apps/cli/package.json.new
           mv apps/cli/package.json.new apps/cli/package.json
       - run: pnpm --dir apps/cli build
+      - run: pnpm --dir apps/tui build
+      - name: Stage artifacts
+        run: |
+          mkdir -p release-dist
+          cp apps/cli/dist/caracal-* release-dist/
+          cp apps/tui/dist/caracal-tui-* release-dist/
       - name: Generate checksums
-        working-directory: apps/cli/dist
-        run: sha256sum caracal-* > SHA256SUMS
+        working-directory: release-dist
+        run: sha256sum caracal-* caracal-tui-* > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: cli-binaries
-          path: apps/cli/dist/*
+          path: release-dist/*
 
   images:
     needs: validate
