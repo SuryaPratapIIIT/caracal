@@ -1,0 +1,248 @@
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Custom visual styles for the documentation site.
+ */
+
+:root {
+  --sl-color-accent-low: #d9f2e3;
+  --sl-color-accent: #167b55;
+  --sl-color-accent-high: #0d3f2c;
+  --sl-color-white: #fffdf8;
+  --sl-color-gray-1: #f8f7f2;
+  --sl-color-gray-2: #ece9df;
+  --sl-color-gray-3: #d8d3c6;
+  --sl-color-gray-4: #8f897b;
+  --sl-color-gray-5: #575247;
+  --sl-color-gray-6: #292620;
+  --sl-color-black: #141310;
+  --landing-border: rgba(20, 19, 16, 0.12);
+  --landing-surface: rgba(255, 253, 248, 0.82);
+  --landing-muted: #6b6559;
+}
+
+:root[data-theme='dark'] {
+  --sl-color-accent-low: #123c2d;
+  --sl-color-accent: #5de0a0;
+  --sl-color-accent-high: #d8f8e7;
+  --sl-color-white: #f9f7f0;
+  --sl-color-gray-1: #ebe6d9;
+  --sl-color-gray-2: #cfc8b9;
+  --sl-color-gray-3: #9c9483;
+  --sl-color-gray-4: #6b6356;
+  --sl-color-gray-5: #312d27;
+  --sl-color-gray-6: #201d19;
+  --sl-color-black: #11100d;
+  --landing-border: rgba(249, 247, 240, 0.14);
+  --landing-surface: rgba(24, 22, 18, 0.86);
+  --landing-muted: #bcb4a5;
+}
+
+.sl-markdown-content {
+  letter-spacing: 0;
+}
+
+.content-panel:has(+ .content-panel .landingHero) {
+  display: none;
+}
+
+.landingHero,
+.quickStart {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  align-items: stretch;
+  margin-block: clamp(1rem, 4vw, 3rem) clamp(2.5rem, 6vw, 5rem);
+}
+
+.landingHeroContent,
+.landingHeroPanel,
+.quickStart {
+  border: 1px solid var(--landing-border);
+  border-radius: 8px;
+  background: var(--landing-surface);
+}
+
+.landingHeroContent {
+  padding: clamp(2rem, 5vw, 4.5rem);
+}
+
+.landingEyebrow {
+  margin: 0 0 0.8rem;
+  color: var(--sl-color-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.landingHero h1,
+.landingSection h2,
+.quickStart h2 {
+  margin: 0;
+  color: var(--sl-color-white);
+  letter-spacing: 0;
+}
+
+.landingHero h1 {
+  max-width: 12ch;
+  font-size: clamp(2.6rem, 7vw, 5.6rem);
+  line-height: 0.92;
+}
+
+.landingHeroText {
+  max-width: 44rem;
+  margin: 1.5rem 0 0;
+  color: var(--landing-muted);
+  font-size: clamp(1.05rem, 2vw, 1.28rem);
+  line-height: 1.6;
+}
+
+.landingHeroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.landingButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--landing-border);
+  border-radius: 6px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.landingButtonPrimary {
+  background: var(--sl-color-accent);
+  color: var(--sl-color-black);
+}
+
+.landingButtonSecondary {
+  color: var(--sl-color-white);
+}
+
+.landingHeroPanel {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.landingHeroPanel div {
+  padding: 1.4rem;
+  background: color-mix(in srgb, var(--sl-color-gray-6) 36%, transparent);
+}
+
+.landingHeroPanel span {
+  display: block;
+  color: var(--sl-color-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.landingHeroPanel strong,
+.featureCard strong {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--sl-color-white);
+}
+
+.landingHeroPanel p,
+.featureCard p,
+.quickStart p {
+  margin: 0.55rem 0 0;
+  color: var(--landing-muted);
+  line-height: 1.55;
+}
+
+.landingSection {
+  margin-block: 0 clamp(2.5rem, 6vw, 5rem);
+}
+
+.landingSectionHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.landingSection h2,
+.quickStart h2 {
+  font-size: clamp(1.75rem, 3vw, 2.6rem);
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.featureCard {
+  min-height: 13rem;
+  padding: 1.25rem;
+  border: 1px solid var(--landing-border);
+  border-radius: 8px;
+  background: var(--landing-surface);
+  text-decoration: none;
+}
+
+.featureCard span {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+}
+
+.featureCard:hover,
+.landingButton:hover {
+  border-color: var(--sl-color-accent);
+}
+
+.quickStart {
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+.quickStart > div {
+  align-self: center;
+}
+
+.quickStart pre {
+  min-height: 11rem;
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--landing-border);
+  border-radius: 8px;
+  background: var(--sl-color-black);
+  color: var(--sl-color-accent-high);
+  overflow-x: auto;
+}
+
+.quickStart code {
+  font-size: 0.95rem;
+  line-height: 1.9;
+}
+
+@media (max-width: 58rem) {
+  .landingHero,
+  .quickStart,
+  .featureGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .landingHero h1 {
+    max-width: 11ch;
+  }
+
+  .landingSectionHeader {
+    display: block;
+  }
+}

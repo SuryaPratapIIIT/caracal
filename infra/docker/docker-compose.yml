@@ -1,0 +1,171 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Local-dev orchestration for the OSS Caracal stack.
+
+name: caracal
+
+services:
+  postgres:
+    build:
+      context: ../postgres
+    image: caracal/postgres:dev
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresData:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    build:
+      context: ../redis
+    image: caracal/redis:dev
+    command:
+      - "--requirepass"
+      - "${REDIS_PASSWORD}"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisData:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} --no-auth-warning PING | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  init:
+    image: caracal/redis:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    entrypoint: ["/bin/sh", "/caracal/provision-streams.sh"]
+    volumes:
+      - ../redis/provision-streams.sh:/caracal/provision-streams.sh:ro
+    restart: "no"
+
+  sts:
+    build:
+      context: ../..
+      dockerfile: services/sts/Dockerfile
+    image: caracal/sts:dev
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      ZONE_KEK_PROVIDER: local
+      ISSUER_URL: http://localhost:8080
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: caracal/api:dev
+    depends_on:
+      sts:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      STS_URL: http://sts:8080
+      CARACAL_ADMIN_TOKEN: ${CARACAL_ADMIN_TOKEN}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: services/gateway/Dockerfile
+    image: caracal/gateway:dev
+    depends_on:
+      sts:
+        condition: service_healthy
+    environment:
+      STS_URL: http://sts:8080
+      PORT: 8081
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  audit:
+    build:
+      context: ../..
+      dockerfile: services/audit/Dockerfile
+    image: caracal/audit:dev
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
+      AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
+      PORT: "9090"
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: apps/agent-coordinator/Dockerfile
+    image: caracal/coordinator:dev
+    depends_on:
+      sts:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      STS_URL: http://sts:8080
+      ISSUER_URL: http://localhost:8080
+      AGENT_COORDINATOR_AUDIENCE: caracal.agent-coordinator
+      AGENT_COORDINATOR_SCOPE: agent:lifecycle
+      PORT: 4000
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgresData:
+  redisData:
