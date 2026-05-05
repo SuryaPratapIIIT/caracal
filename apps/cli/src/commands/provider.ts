@@ -4,6 +4,7 @@
 // `caracal provider …` admin subcommands.
 
 import type { CliConfig } from '../config.ts'
+import type { ProviderKind } from '@caracalai/admin'
 import {
   buildAdminClient,
   fail,
@@ -15,8 +16,6 @@ import {
   readContent,
   requireZone,
 } from './shared.ts'
-
-type ProviderKind = 'oauth2' | 'oidc' | 'apikey' | 'workload'
 
 function parseConfig(value: string | undefined): Record<string, unknown> | undefined {
   if (!value) return undefined

@@ -6,6 +6,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
+import { getenv, mustGetenv } from '@caracalai/shared'
 
 function loadEnvChain(): void {
   const seen = new Set<string>()
@@ -39,40 +40,30 @@ export interface Config {
   adminToken: string
 }
 
-function must(key: string): string {
-  const v = process.env[key]
-  if (!v) throw new Error(`required env var missing: ${key}`)
-  return v
-}
-
-function get(key: string, fallback: string): string {
-  return process.env[key] ?? fallback
-}
-
 function buildDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL
-  const user = encodeURIComponent(must('POSTGRES_USER'))
-  const password = encodeURIComponent(must('POSTGRES_PASSWORD'))
-  const host = get('POSTGRES_HOST', 'localhost')
-  const port = get('POSTGRES_PORT', '5432')
-  const db = must('POSTGRES_DB')
+  const user = encodeURIComponent(mustGetenv('POSTGRES_USER'))
+  const password = encodeURIComponent(mustGetenv('POSTGRES_PASSWORD'))
+  const host = getenv('POSTGRES_HOST', 'localhost')
+  const port = getenv('POSTGRES_PORT', '5432')
+  const db = mustGetenv('POSTGRES_DB')
   return `postgres://${user}:${password}@${host}:${port}/${db}`
 }
 
 function buildRedisUrl(): string {
   if (process.env.REDIS_URL) return process.env.REDIS_URL
-  const password = encodeURIComponent(must('REDIS_PASSWORD'))
-  const host = get('REDIS_HOST', 'localhost')
-  const port = get('REDIS_PORT', '6379')
+  const password = encodeURIComponent(mustGetenv('REDIS_PASSWORD'))
+  const host = getenv('REDIS_HOST', 'localhost')
+  const port = getenv('REDIS_PORT', '6379')
   return `redis://:${password}@${host}:${port}`
 }
 
 export function loadConfig(): Config {
   return {
-    port: parseInt(get('PORT', '3000'), 10),
+    port: parseInt(getenv('PORT', '3000'), 10),
     databaseUrl: buildDatabaseUrl(),
     redisUrl: buildRedisUrl(),
-    logLevel: get('LOG_LEVEL', 'info'),
-    adminToken: must('CARACAL_ADMIN_TOKEN'),
+    logLevel: getenv('LOG_LEVEL', 'info'),
+    adminToken: mustGetenv('CARACAL_ADMIN_TOKEN'),
   }
 }

@@ -148,7 +148,7 @@ export async function initCommand(argv: string[]): Promise<void> {
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => res.statusText)
+    const body = await res.text()
     process.stderr.write(`Error: bootstrap failed (${res.status}): ${body}\n`)
     process.exit(1)
   }
