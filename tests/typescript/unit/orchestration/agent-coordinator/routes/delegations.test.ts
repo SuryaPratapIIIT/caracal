@@ -83,7 +83,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_cycle_requires_constraints' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'delegation_cycle_denied' })
   })
 
   it('rejects application mismatches on graph endpoints', async () => {

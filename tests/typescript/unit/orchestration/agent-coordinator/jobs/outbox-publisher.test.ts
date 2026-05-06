@@ -1,65 +1,91 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Agent coordinator outbox publisher unit tests for Redis stream delivery.
+// Outbox publisher unit tests covering Redis stream delivery and retry state.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { startOutboxPublisher } from '../../../../../../apps/agent-coordinator/src/jobs/outbox-publisher.js'
+import { publishBatch, startOutboxPublisher } from '../../../../../../apps/agent-coordinator/src/jobs/outbox-publisher.js'
 
-describe('startOutboxPublisher', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
+function mockClient(rows: unknown[]) {
+  return {
+    query: vi.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }),
+    release: vi.fn(),
+  }
+}
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('publishes pending outbox rows and marks them published', async () => {
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'outbox-1', topic: 'caracal.invocations', payload_json: { event: 'created', count: 1 } },
-        ] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
+describe('publishBatch', () => {
+  it('prepends outbox_id and dedupe_key on every published record', async () => {
+    const client = mockClient([
+      { id: 'outbox-1', topic: 'caracal.invocations.lifecycle', dedupe_key: 'invocation.created:inv-1', payload_json: { event: 'created', count: 1 }, attempts: 0 },
+    ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     const redis = { xadd: vi.fn().mockResolvedValueOnce('stream-id-1') }
 
-    const timer = startOutboxPublisher(db as never, redis as never)
-    await vi.advanceTimersByTimeAsync(1000)
-    clearInterval(timer)
+    await publishBatch(db as never, redis as never, 50, 10)
 
-    expect(redis.xadd).toHaveBeenCalledWith('caracal.invocations', '*', 'event', 'created', 'count', '1')
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'published'"), ['outbox-1'])
+    expect(redis.xadd).toHaveBeenCalledWith(
+      'caracal.invocations.lifecycle', '*',
+      'outbox_id', 'outbox-1',
+      'dedupe_key', 'invocation.created:inv-1',
+      'event', 'created',
+      'count', '1',
+    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'published'"), [['outbox-1']])
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(client.release).toHaveBeenCalledTimes(1)
   })
 
-  it('records retry state when Redis publishing fails', async () => {
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [
-          { id: 'outbox-1', topic: 'caracal.invocations', payload_json: { nested: { id: 'inv-1' } } },
-        ] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
+  it('marks failed rows for retry and serializes nested payloads', async () => {
+    const client = mockClient([
+      { id: 'outbox-1', topic: 'caracal.agents.lifecycle', dedupe_key: 'spawn:agent-1', payload_json: { nested: { id: 'inv-1' } }, attempts: 0 },
+    ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     const redis = { xadd: vi.fn().mockRejectedValueOnce(new Error('redis down')) }
 
-    const timer = startOutboxPublisher(db as never, redis as never)
-    await vi.advanceTimersByTimeAsync(1000)
-    clearInterval(timer)
+    await publishBatch(db as never, redis as never, 50, 10)
 
-    expect(redis.xadd).toHaveBeenCalledWith('caracal.invocations', '*', 'nested', '{"id":"inv-1"}')
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = CASE WHEN attempts + 1 >= 10"), ['outbox-1'])
-    expect(client.query).toHaveBeenCalledWith('COMMIT')
-    expect(client.release).toHaveBeenCalledTimes(1)
+    expect(redis.xadd).toHaveBeenCalledWith(
+      'caracal.agents.lifecycle', '*',
+      'outbox_id', 'outbox-1',
+      'dedupe_key', 'spawn:agent-1',
+      'nested', '{"id":"inv-1"}',
+    )
+    const retryUpdate = client.query.mock.calls.find((call) => String(call[0]).includes('available_at = now()'))
+    expect(retryUpdate?.[1]).toEqual([['outbox-1']])
+  })
+
+  it('promotes rows to dead after max attempts', async () => {
+    const client = mockClient([
+      { id: 'outbox-1', topic: 'caracal.agents.lifecycle', dedupe_key: 'spawn:agent-1', payload_json: {}, attempts: 9 },
+    ])
+    const db = { connect: vi.fn().mockResolvedValueOnce(client) }
+    const redis = { xadd: vi.fn().mockRejectedValueOnce(new Error('boom')) }
+
+    await publishBatch(db as never, redis as never, 50, 10)
+
+    const deadUpdate = client.query.mock.calls.find((call) => String(call[0]).includes("status = 'dead'"))
+    expect(deadUpdate?.[1]).toEqual([['outbox-1']])
+  })
+})
+
+describe('startOutboxPublisher', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('returns a handle whose stop awaits the in-flight tick', async () => {
+    const client = mockClient([])
+    const db = { connect: vi.fn().mockResolvedValue(client) }
+    const redis = { xadd: vi.fn() }
+
+    const handle = startOutboxPublisher(db as never, redis as never, { intervalMs: 100 })
+    await vi.advanceTimersByTimeAsync(100)
+    await handle.stop()
+    expect(client.release).toHaveBeenCalled()
   })
 })

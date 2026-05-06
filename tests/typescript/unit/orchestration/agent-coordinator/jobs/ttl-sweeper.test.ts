@@ -1,51 +1,57 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Agent coordinator TTL sweeper unit tests for termination side effects.
+// TTL sweeper unit tests covering leader election and outbox enqueue.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const redisMocks = vi.hoisted(() => ({
-  publishSessionRevocation: vi.fn(),
-  publishLifecycle: vi.fn(),
-}))
-
-vi.mock('../../../../../../apps/agent-coordinator/src/redis.js', () => redisMocks)
-
+import { describe, expect, it, vi } from 'vitest'
 import { runTTLSweep } from '../../../../../../apps/agent-coordinator/src/jobs/ttl-sweeper.js'
 
+function clientWith(rows: unknown[], acquired = true) {
+  return {
+    query: vi.fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ acquired }] })
+      .mockResolvedValueOnce({ rows })
+      .mockResolvedValue({ rows: [] }),
+    release: vi.fn(),
+  }
+}
+
 describe('runTTLSweep', () => {
-  beforeEach(() => {
-    redisMocks.publishSessionRevocation.mockReset()
-    redisMocks.publishLifecycle.mockReset()
+  it('skips work when the advisory lock is held by another node', async () => {
+    const client = clientWith([], false)
+    const db = { connect: vi.fn().mockResolvedValueOnce(client) }
+    await expect(runTTLSweep(db as never)).resolves.toBe(0)
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('terminates expired agent sessions and publishes revocation events', async () => {
-    const db = {
-      query: vi.fn().mockResolvedValueOnce({
-        rows: [
-          { id: 'agent-1', zone_id: 'zone1', session_sid: 'sid-1' },
-          { id: 'agent-2', zone_id: 'zone1', session_sid: 'sid-2' },
-        ],
-      }),
-    }
+  it('terminates expired sessions and enqueues outbox events', async () => {
+    const rows = [
+      { id: 'agent-1', zone_id: 'z1', session_sid: 'sid-1', parent_id: null },
+      { id: 'agent-2', zone_id: 'z1', session_sid: 'sid-2', parent_id: 'agent-1' },
+    ]
+    const client = clientWith(rows)
+    const db = { connect: vi.fn().mockResolvedValueOnce(client) }
 
     const count = await runTTLSweep(db as never)
-
     expect(count).toBe(2)
-    expect(db.query.mock.calls[0][0]).toContain("status = 'active'")
-    expect(redisMocks.publishSessionRevocation).toHaveBeenCalledWith('zone1', 'sid-1')
-    expect(redisMocks.publishSessionRevocation).toHaveBeenCalledWith('zone1', 'sid-2')
-    expect(redisMocks.publishLifecycle).toHaveBeenCalledWith('terminate', 'zone1', 'agent-1', null)
-    expect(redisMocks.publishLifecycle).toHaveBeenCalledWith('terminate', 'zone1', 'agent-2', null)
+
+    const outboxInserts = client.query.mock.calls.filter((call) => String(call[0]).includes('caracal_outbox'))
+    expect(outboxInserts.length).toBe(4)
+    const dedupeKeys = outboxInserts.map((call) => call[1]?.[2])
+    expect(dedupeKeys).toEqual(expect.arrayContaining([
+      'agent_ttl:agent-1', 'terminate:agent-1',
+      'agent_ttl:agent-2', 'terminate:agent-2',
+    ]))
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
-  it('does not publish events when no sessions expire', async () => {
-    const db = { query: vi.fn().mockResolvedValueOnce({ rows: [] }) }
-
+  it('commits with no inserts when nothing expired', async () => {
+    const client = clientWith([])
+    const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runTTLSweep(db as never)).resolves.toBe(0)
-
-    expect(redisMocks.publishSessionRevocation).not.toHaveBeenCalled()
-    expect(redisMocks.publishLifecycle).not.toHaveBeenCalled()
+    const outboxInserts = client.query.mock.calls.filter((call) => String(call[0]).includes('caracal_outbox'))
+    expect(outboxInserts.length).toBe(0)
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })
