@@ -107,49 +107,61 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(204).send()
   })
 
-  // DCR: rate-limited dynamic client registration
   fastify.post('/zones/:zoneId/applications/dcr', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const body = DCRBody.parse(req.body)
 
-    const { rows: zones } = await fastify.db.query(
-      `SELECT dcr_enabled FROM zones WHERE id = $1 AND archived_at IS NULL`,
-      [params.zoneId],
-    )
-    if (!zones[0]) return reply.code(404).send({ error: 'zone_not_found' })
-    if (!zones[0].dcr_enabled) return reply.code(403).send({ error: 'dcr_disabled' })
-
-    // Enforce 10 req/s per zone via Redis fixed window
     const rlKey = `rl:dcr:${params.zoneId}`
+    await fastify.redis.set(rlKey, 0, 'EX', 1, 'NX')
     const rlCount = await fastify.redis.incr(rlKey)
-    if (rlCount === 1) await fastify.redis.expire(rlKey, 1)
     if (rlCount > 10) {
       return reply.code(429).send({ error: 'dcr_rate_limit_exceeded' })
-    }
-
-    // Enforce DCR concurrency cap (1000 active DCR apps per zone)
-    const { rows: cnt } = await fastify.db.query(
-      `SELECT COUNT(*) AS n FROM applications
-       WHERE zone_id = $1 AND registration_method = 'dcr'
-         AND archived_at IS NULL
-         AND (expires_at IS NULL OR expires_at > now())`,
-      [params.zoneId],
-    )
-    if (parseInt(cnt[0].n, 10) >= 1000) {
-      return reply.code(429).send({ error: 'dcr_limit_exceeded' })
     }
 
     const id = uuidv7()
     const expiresAt = body.expires_in
       ? new Date(Date.now() + body.expires_in * 1000)
       : null
-    const { rows } = await fastify.db.query(
-      `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
-       VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
-       RETURNING id, zone_id, name, registration_method, credential_type, expires_at, created_at`,
-      [id, params.zoneId, body.name, body.credential_type ?? 'public', body.client_secret ? hashSecret(body.client_secret) : null, body.traits ?? [], expiresAt],
-    )
-    return reply.code(201).send(rows[0])
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows: zones } = await client.query(
+        `SELECT dcr_enabled FROM zones WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
+        [params.zoneId],
+      )
+      if (!zones[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'zone_not_found' })
+      }
+      if (!zones[0].dcr_enabled) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'dcr_disabled' })
+      }
+      const { rows: cnt } = await client.query(
+        `SELECT COUNT(*) AS n FROM applications
+         WHERE zone_id = $1 AND registration_method = 'dcr'
+           AND archived_at IS NULL
+           AND (expires_at IS NULL OR expires_at > now())`,
+        [params.zoneId],
+      )
+      if (parseInt(cnt[0].n, 10) >= 1000) {
+        await client.query('ROLLBACK')
+        return reply.code(429).send({ error: 'dcr_limit_exceeded' })
+      }
+      const { rows } = await client.query(
+        `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
+         VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
+         RETURNING id, zone_id, name, registration_method, credential_type, expires_at, created_at`,
+        [id, params.zoneId, body.name, body.credential_type ?? 'public', body.client_secret ? hashSecret(body.client_secret) : null, body.traits ?? [], expiresAt],
+      )
+      await client.query('COMMIT')
+      return reply.code(201).send(rows[0])
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 }

@@ -9,24 +9,33 @@ import { applicationsRoutes } from '../../../../../apps/api/src/routes/applicati
 
 function buildApp() {
   const app = Fastify({ logger: false })
+  const clientQuery = vi.fn()
   const db = {
     query: vi.fn(),
-    connect: vi.fn(),
+    connect: vi.fn().mockResolvedValue({
+      query: clientQuery,
+      release: vi.fn(),
+    }),
   }
   const redis = {
+    set: vi.fn().mockResolvedValue('OK'),
     incr: vi.fn(),
     expire: vi.fn(),
   }
   app.decorate('db', db as never)
   app.decorate('redis', redis as never)
   app.register(applicationsRoutes, { prefix: '/v1' })
-  return { app, db, redis }
+  return { app, db, clientQuery, redis }
 }
 
 describe('POST /v1/zones/:zoneId/applications/dcr', () => {
   it('rejects DCR when the zone has disabled it', async () => {
-    const { app, db, redis } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ dcr_enabled: false }] })
+    const { app, clientQuery, redis } = buildApp()
+    redis.incr.mockResolvedValueOnce(1)
+    clientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ dcr_enabled: false }] }) // zone select
+      .mockResolvedValueOnce({ rows: [] }) // ROLLBACK
 
     await app.ready()
     const res = await app.inject({
@@ -37,17 +46,17 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_disabled' })
-    expect(redis.incr).not.toHaveBeenCalled()
   })
 
   it('creates a DCR application when the zone enables it', async () => {
-    const { app, db, redis } = buildApp()
-    db.query
+    const { app, clientQuery, redis } = buildApp()
+    redis.incr.mockResolvedValueOnce(1)
+    clientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
       .mockResolvedValueOnce({ rows: [{ dcr_enabled: true }] })
       .mockResolvedValueOnce({ rows: [{ n: '0' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'app-1', zone_id: 'z1', registration_method: 'dcr' }] })
-    redis.incr.mockResolvedValueOnce(1)
-    redis.expire.mockResolvedValueOnce(1)
+      .mockResolvedValueOnce({ rows: [] }) // COMMIT
 
     await app.ready()
     const res = await app.inject({
@@ -62,7 +71,6 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
 
   it('returns 429 when the DCR rate limit is exceeded', async () => {
     const { app, db, redis } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ dcr_enabled: true }] })
     redis.incr.mockResolvedValueOnce(11)
 
     await app.ready()
@@ -74,16 +82,17 @@ describe('POST /v1/zones/:zoneId/applications/dcr', () => {
 
     expect(res.statusCode).toBe(429)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_rate_limit_exceeded' })
-    expect(db.query).toHaveBeenCalledTimes(1)
+    expect(db.connect).not.toHaveBeenCalled()
   })
 
   it('returns 429 when the active DCR application cap is reached', async () => {
-    const { app, db, redis } = buildApp()
-    db.query
+    const { app, clientQuery, redis } = buildApp()
+    redis.incr.mockResolvedValueOnce(1)
+    clientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
       .mockResolvedValueOnce({ rows: [{ dcr_enabled: true }] })
       .mockResolvedValueOnce({ rows: [{ n: '1000' }] })
-    redis.incr.mockResolvedValueOnce(1)
-    redis.expire.mockResolvedValueOnce(1)
+      .mockResolvedValueOnce({ rows: [] }) // ROLLBACK
 
     await app.ready()
     const res = await app.inject({

@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import type { DB } from './db.js'
 
 const MIGRATIONS_TABLE = 'schema_migrations'
+const ADVISORY_LOCK_KEY = '4732518903281471'
 
 function discoverMigrationsDir(): string {
   if (process.env.CARACAL_MIGRATIONS_DIR) return process.env.CARACAL_MIGRATIONS_DIR
@@ -34,33 +35,39 @@ export async function runMigrations(db: DB, log: (msg: string) => void): Promise
   const migrations = listMigrations(dir)
   if (migrations.length === 0) return
 
-  await db.query(
-    `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
-       version TEXT PRIMARY KEY,
-       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-     )`,
-  )
-
-  const { rows } = await db.query<{ version: string }>(
-    `SELECT version FROM ${MIGRATIONS_TABLE}`,
-  )
-  const applied = new Set(rows.map((r) => r.version))
-
   const client = await db.connect()
   try {
-    for (const m of migrations) {
-      if (applied.has(m.version)) continue
-      const sql = readFileSync(m.path, 'utf8')
-      log(`applying migration ${m.version}`)
-      await client.query('BEGIN')
-      try {
-        await client.query(sql)
-        await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (version) VALUES ($1)`, [m.version])
-        await client.query('COMMIT')
-      } catch (err) {
-        await client.query('ROLLBACK')
-        throw new Error(`migration ${m.version} failed: ${(err as Error).message}`)
+    // Serialize replicas during rolling deploys so only one process applies pending migrations.
+    await client.query(`SELECT pg_advisory_lock($1::bigint)`, [ADVISORY_LOCK_KEY])
+    try {
+      await client.query(
+        `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
+           version TEXT PRIMARY KEY,
+           applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+         )`,
+      )
+
+      const { rows } = await client.query<{ version: string }>(
+        `SELECT version FROM ${MIGRATIONS_TABLE}`,
+      )
+      const applied = new Set(rows.map((r) => r.version))
+
+      for (const m of migrations) {
+        if (applied.has(m.version)) continue
+        const sql = readFileSync(m.path, 'utf8')
+        log(`applying migration ${m.version}`)
+        await client.query('BEGIN')
+        try {
+          await client.query(sql)
+          await client.query(`INSERT INTO ${MIGRATIONS_TABLE} (version) VALUES ($1)`, [m.version])
+          await client.query('COMMIT')
+        } catch (err) {
+          await client.query('ROLLBACK')
+          throw new Error(`migration ${m.version} failed: ${(err as Error).message}`)
+        }
       }
+    } finally {
+      await client.query(`SELECT pg_advisory_unlock($1::bigint)`, [ADVISORY_LOCK_KEY])
     }
   } finally {
     client.release()
