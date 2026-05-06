@@ -3,20 +3,12 @@
 //
 // API fuzz-style property tests: random and adversarial inputs must not crash or leak.
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { buildApp } from '../../../../apps/api/src/app.js'
+import { apiAppDeps } from '../../../shared/test-utils/typescript/api-app.js'
 
 function deps() {
-  const db = { query: vi.fn().mockResolvedValue({ rows: [] }) }
-  const redis = { xadd: vi.fn() }
-  const cfg = {
-    port: 0,
-    databaseUrl: 'postgres://localhost/caracal',
-    redisUrl: 'redis://localhost:6379',
-    logLevel: 'silent',
-    adminToken: 'admin-secret',
-  }
-  return { cfg, db, redis }
+  return apiAppDeps()
 }
 
 const adversarialSlugInputs = [
