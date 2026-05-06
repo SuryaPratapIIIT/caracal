@@ -1,32 +1,77 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Transactional outbox publisher for coordinator Redis events.
+// Transactional outbox publisher for coordinator Redis Streams events.
 
 import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
+import { cfg } from '../config.js'
 
-const INTERVAL_MS = 1000
-const BATCH_SIZE = 50
-
-export function startOutboxPublisher(db: Pool, redis: Redis): NodeJS.Timeout {
-  return setInterval(() => {
-    publishBatch(db, redis).catch((err) => {
-      console.error('Outbox batch publish failed:', err)
-    })
-  }, INTERVAL_MS)
+interface OutboxRow {
+  id: string
+  topic: string
+  dedupe_key: string
+  payload_json: Record<string, unknown>
+  attempts: number
 }
 
-async function publishBatch(db: Pool, redis: Redis): Promise<void> {
+export interface OutboxPublisherOptions {
+  intervalMs?: number
+  batchSize?: number
+  maxAttempts?: number
+}
+
+export interface OutboxPublisherHandle {
+  stop: () => Promise<void>
+}
+
+export function startOutboxPublisher(
+  db: Pool,
+  redis: Redis,
+  options: OutboxPublisherOptions = {},
+): OutboxPublisherHandle {
+  const intervalMs = options.intervalMs ?? cfg.outboxIntervalMs
+  const batchSize = options.batchSize ?? cfg.outboxBatchSize
+  const maxAttempts = options.maxAttempts ?? cfg.outboxMaxAttempts
+
+  let running = false
+  let stopped = false
+  let pending: Promise<void> = Promise.resolve()
+
+  const tick = (): void => {
+    if (stopped || running) return
+    running = true
+    pending = publishBatch(db, redis, batchSize, maxAttempts)
+      .catch((err) => {
+        console.error('Outbox batch publish failed:', err)
+      })
+      .finally(() => {
+        running = false
+      })
+  }
+
+  const timer = setInterval(tick, intervalMs)
+
+  return {
+    stop: async () => {
+      stopped = true
+      clearInterval(timer)
+      await pending
+    },
+  }
+}
+
+export async function publishBatch(
+  db: Pool,
+  redis: Redis,
+  batchSize: number,
+  maxAttempts: number,
+): Promise<void> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows } = await client.query<{
-      id: string
-      topic: string
-      payload_json: Record<string, unknown>
-    }>(
-      `SELECT id, topic, payload_json
+    const { rows } = await client.query<OutboxRow>(
+      `SELECT id, topic, dedupe_key, payload_json, attempts
        FROM caracal_outbox
        WHERE producer = 'coordinator'
          AND status = 'pending'
@@ -34,28 +79,47 @@ async function publishBatch(db: Pool, redis: Redis): Promise<void> {
        ORDER BY created_at
        LIMIT $1
        FOR UPDATE SKIP LOCKED`,
-      [BATCH_SIZE],
+      [batchSize],
     )
+    const published: string[] = []
+    const retried: string[] = []
+    const dead: string[] = []
     for (const row of rows) {
       try {
-        await redis.xadd(row.topic, '*', ...redisFields(row.payload_json))
-        await client.query(
-          `UPDATE caracal_outbox
-           SET status = 'published', attempts = attempts + 1, published_at = now(), updated_at = now()
-           WHERE id = $1`,
-          [row.id],
-        )
-      } catch {
-        await client.query(
-          `UPDATE caracal_outbox
-           SET attempts = attempts + 1,
-               status = CASE WHEN attempts + 1 >= 10 THEN 'dead' ELSE 'pending' END,
-               available_at = now() + ((attempts + 1) * interval '1 second'),
-               updated_at = now()
-           WHERE id = $1`,
-          [row.id],
-        )
+        await redis.xadd(row.topic, '*', ...streamFields(row))
+        published.push(row.id)
+      } catch (err) {
+        const nextAttempts = row.attempts + 1
+        if (nextAttempts >= maxAttempts) dead.push(row.id)
+        else retried.push(row.id)
+        console.error(`Outbox publish failed for ${row.id} (attempt ${nextAttempts}):`, err)
       }
+    }
+    if (published.length > 0) {
+      await client.query(
+        `UPDATE caracal_outbox
+         SET status = 'published', attempts = attempts + 1, published_at = now(), updated_at = now()
+         WHERE id = ANY($1::text[])`,
+        [published],
+      )
+    }
+    if (retried.length > 0) {
+      await client.query(
+        `UPDATE caracal_outbox
+         SET attempts = attempts + 1,
+             available_at = now() + (LEAST(attempts + 1, 60) * interval '1 second'),
+             updated_at = now()
+         WHERE id = ANY($1::text[])`,
+        [retried],
+      )
+    }
+    if (dead.length > 0) {
+      await client.query(
+        `UPDATE caracal_outbox
+         SET status = 'dead', attempts = attempts + 1, updated_at = now()
+         WHERE id = ANY($1::text[])`,
+        [dead],
+      )
     }
     await client.query('COMMIT')
   } catch (err) {
@@ -66,9 +130,11 @@ async function publishBatch(db: Pool, redis: Redis): Promise<void> {
   }
 }
 
-function redisFields(payload: Record<string, unknown>): string[] {
-  return Object.entries(payload).flatMap(([key, value]) => [
-    key,
-    typeof value === 'string' ? value : JSON.stringify(value),
-  ])
+function streamFields(row: OutboxRow): string[] {
+  const out: string[] = ['outbox_id', row.id, 'dedupe_key', row.dedupe_key]
+  for (const [key, value] of Object.entries(row.payload_json)) {
+    if (key === 'outbox_id' || key === 'dedupe_key') continue
+    out.push(key, typeof value === 'string' ? value : JSON.stringify(value))
+  }
+  return out
 }
