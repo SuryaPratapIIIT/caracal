@@ -6,13 +6,15 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
-import type { Pool } from 'pg'
-import { publishLifecycle, publishSessionRevocation } from '../redis.js'
+import type { PoolClient } from 'pg'
+import { enqueue, Topics, type Queryable } from '../outbox.js'
 
 const MAX_DEPTH = 10
 const MAX_CHILDREN = 10
 const MAX_TOTAL = 50
 const DEFAULT_TTL = 3600
+const LIST_DEFAULT_LIMIT = 100
+const LIST_MAX_LIMIT = 500
 
 const SpawnBody = z.object({
   application_id: z.string().min(1),
@@ -22,6 +24,15 @@ const SpawnBody = z.object({
   ttl_seconds: z.number().int().min(1).max(86400).default(DEFAULT_TTL),
 })
 
+const ListQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
+  cursor: z.string().min(1).optional(),
+})
+
+function spawnLockKey(zoneId: string): string {
+  return `coordinator:agent_spawn:${zoneId}`
+}
+
 export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/zones/:zoneId/agents', async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string }
@@ -30,6 +41,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        [spawnLockKey(zoneId)],
+      )
       const { rows: refs } = await client.query(
         `SELECT
            EXISTS (
@@ -100,8 +115,14 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           [body.parent_id],
         )
       }
+      await enqueue(client, Topics.AgentsLifecycle, `spawn:${id}`, {
+        event: 'spawn',
+        zone_id: zoneId,
+        session_id: id,
+        parent_id: body.parent_id,
+        application_id: body.application_id,
+      })
       await client.query('COMMIT')
-      await publishLifecycle('spawn', zoneId, id, body.parent_id)
       return reply.code(201).send(rows[0])
     } catch (err) {
       await client.query('ROLLBACK')
@@ -111,14 +132,24 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  fastify.get('/zones/:zoneId/agents', async (req) => {
+  fastify.get('/zones/:zoneId/agents', async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string }
+    const query = ListQuery.safeParse(req.query)
+    if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
+    const { limit, cursor } = query.data
+    const cursorClause = cursor ? `AND (spawned_at, id) < (
+        (SELECT spawned_at FROM agent_sessions WHERE id = $3 AND zone_id = $1),
+        $3)` : ''
+    const params: unknown[] = [zoneId, limit]
+    if (cursor) params.push(cursor)
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, application_id, parent_id, session_sid, status, depth, spawned_at, terminated_at
-       FROM agent_sessions WHERE zone_id = $1 ORDER BY spawned_at DESC`,
-      [zoneId],
+       FROM agent_sessions WHERE zone_id = $1 ${cursorClause}
+       ORDER BY spawned_at DESC, id DESC LIMIT $2`,
+      params,
     )
-    return rows
+    const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
+    return { items: rows, next_cursor: nextCursor }
   })
 
   fastify.get('/zones/:zoneId/agents/:id', async (req, reply) => {
@@ -147,72 +178,120 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch('/zones/:zoneId/agents/:id/suspend', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
-    const { rows } = await fastify.db.query(
-      `UPDATE agent_sessions SET status = 'suspended'
-       WHERE id = $1 AND zone_id = $2 AND status = 'active'
-       RETURNING id`,
-      [id, zoneId],
-    )
-    if (!rows[0]) return reply.code(404).send({ error: 'agent_not_found_or_not_active' })
-    await publishLifecycle('suspend', zoneId, id, null)
-    return { suspended: true }
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows } = await client.query(
+        `UPDATE agent_sessions SET status = 'suspended'
+         WHERE id = $1 AND zone_id = $2 AND status = 'active'
+         RETURNING id, parent_id`,
+        [id, zoneId],
+      )
+      if (!rows[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found_or_not_active' })
+      }
+      await enqueue(client, Topics.AgentsLifecycle, `suspend:${id}`, {
+        event: 'suspend', zone_id: zoneId, session_id: id, parent_id: rows[0].parent_id,
+      })
+      await client.query('COMMIT')
+      return { suspended: true }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 
   fastify.patch('/zones/:zoneId/agents/:id/resume', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
-    const { rows } = await fastify.db.query(
-      `UPDATE agent_sessions SET status = 'active', last_active_at = now()
-       WHERE id = $1 AND zone_id = $2 AND status = 'suspended'
-       RETURNING id`,
-      [id, zoneId],
-    )
-    if (!rows[0]) return reply.code(404).send({ error: 'agent_not_found_or_not_suspended' })
-    await publishLifecycle('resume', zoneId, id, null)
-    return { resumed: true }
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows } = await client.query(
+        `UPDATE agent_sessions SET status = 'active', last_active_at = now()
+         WHERE id = $1 AND zone_id = $2 AND status = 'suspended'
+         RETURNING id, parent_id`,
+        [id, zoneId],
+      )
+      if (!rows[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found_or_not_suspended' })
+      }
+      await enqueue(client, Topics.AgentsLifecycle, `resume:${id}`, {
+        event: 'resume', zone_id: zoneId, session_id: id, parent_id: rows[0].parent_id,
+      })
+      await client.query('COMMIT')
+      return { resumed: true }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 
   fastify.delete('/zones/:zoneId/agents/:id', async (req, reply) => {
     const { zoneId, id } = req.params as { zoneId: string; id: string }
-    await cascadeTerminate(fastify.db, zoneId, id)
-    return reply.code(204).send()
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const terminated = await cascadeTerminate(client, zoneId, id, 'requested')
+      if (terminated === 0) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'agent_not_found' })
+      }
+      await client.query('COMMIT')
+      return reply.code(204).send()
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   })
 }
 
-async function cascadeTerminate(db: Pool, zoneId: string, id: string): Promise<void> {
-  const { rows: descendants } = await db.query(
+async function cascadeTerminate(
+  client: PoolClient,
+  zoneId: string,
+  rootId: string,
+  reason: string,
+): Promise<number> {
+  const { rows: descendants } = await client.query<{
+    id: string
+    session_sid: string
+    parent_id: string | null
+  }>(
     `WITH RECURSIVE tree AS (
-       SELECT id, session_sid FROM agent_sessions WHERE id = $1 AND zone_id = $2
+       SELECT id, session_sid, parent_id
+       FROM agent_sessions
+       WHERE id = $1 AND zone_id = $2 AND status IN ('active', 'suspended')
        UNION ALL
-       SELECT s.id, s.session_sid
+       SELECT s.id, s.session_sid, s.parent_id
        FROM agent_sessions s
        JOIN tree t ON s.parent_id = t.id
-       WHERE s.zone_id = $2
+       WHERE s.zone_id = $2 AND s.status IN ('active', 'suspended')
      )
-     SELECT id, session_sid FROM tree`,
-    [id, zoneId],
+     SELECT id, session_sid, parent_id FROM tree`,
+    [rootId, zoneId],
   )
-  if (descendants.length === 0) return
-
-  const ids = descendants.map((d: { id: string }) => d.id)
-  await db.query(
+  if (descendants.length === 0) return 0
+  const ids = descendants.map((d) => d.id)
+  await client.query(
     `UPDATE agent_sessions SET status = 'terminated', terminated_at = now()
-     WHERE id = ANY($1::text[])`,
-    [ids],
+     WHERE id = ANY($1::text[]) AND zone_id = $2`,
+    [ids, zoneId],
   )
   for (const d of descendants) {
-    await withRetry(() => publishSessionRevocation(zoneId, d.session_sid))
-    await withRetry(() => publishLifecycle('terminate', zoneId, d.id, null))
+    await enqueue(client as unknown as Queryable, Topics.SessionsRevoke,
+      `agent_terminate:${d.id}`,
+      { zone_id: zoneId, session_id: d.session_sid, reason })
+    await enqueue(client as unknown as Queryable, Topics.AgentsLifecycle,
+      `terminate:${d.id}`,
+      { event: 'terminate', zone_id: zoneId, session_id: d.id,
+        parent_id: d.parent_id, reason })
   }
-}
-
-async function withRetry(fn: () => Promise<void>, maxAttempts = 3, baseMs = 100): Promise<void> {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      await fn()
-      return
-    } catch (err) {
-      if (attempt === maxAttempts) throw err
-      await new Promise(r => setTimeout(r, baseMs * 2 ** (attempt - 1)))
-    }
-  }
+  return descendants.length
 }
