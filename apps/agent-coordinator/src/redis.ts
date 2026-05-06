@@ -1,42 +1,35 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Redis client and stream helpers for the agent coordinator.
+// Redis client lifecycle for the agent coordinator outbox publisher.
 
 import { Redis } from 'ioredis'
+import { cfg } from './config.js'
 
-let redisClient: Redis | undefined
+let client: Redis | undefined
 
-export function getRedis(): Redis {
-  const redisUrl = process.env.REDIS_URL
-  if (!redisUrl) throw new Error('required env var missing: REDIS_URL')
-  redisClient ??= new Redis(redisUrl)
-  return redisClient
+export function buildRedis(): Redis {
+  client ??= new Redis(cfg.redisUrl, {
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: false,
+  })
+  return client
+}
+
+export async function closeRedis(): Promise<void> {
+  if (!client) return
+  try {
+    await client.quit()
+  } catch {
+    client.disconnect()
+  } finally {
+    client = undefined
+  }
 }
 
 export const redis = new Proxy({} as Redis, {
   get(_target, prop) {
-    return Reflect.get(getRedis(), prop)
+    return Reflect.get(buildRedis(), prop)
   },
 })
-
-export async function publishLifecycle(
-  event: string,
-  zoneId: string,
-  sessionId: string,
-  parentId: string | null,
-) {
-  await getRedis().xadd('caracal.agents.lifecycle', '*',
-    'event', event,
-    'zone_id', zoneId,
-    'session_id', sessionId,
-    'parent_id', parentId ?? '',
-  )
-}
-
-export async function publishSessionRevocation(zoneId: string, sessionSid: string) {
-  await getRedis().xadd('caracal.sessions.revoke', '*',
-    'zone_id', zoneId,
-    'session_id', sessionSid,
-  )
-}
