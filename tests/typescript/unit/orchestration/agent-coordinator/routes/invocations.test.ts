@@ -47,7 +47,9 @@ describe('POST /v1/zones/:zoneId/invocations', () => {
 
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'inv-1', status: 'pending' })
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('caracal_outbox'), expect.any(Array))
+    const outboxCall = client.query.mock.calls.find((call) => String(call[0]).includes('caracal_outbox'))
+    expect(outboxCall?.[1]?.[1]).toBe('caracal.invocations.lifecycle')
+    expect(outboxCall?.[1]?.[2]).toContain('invocation.created:')
   })
 
   it('returns an existing invocation for the same idempotency key', async () => {
@@ -129,6 +131,8 @@ describe('PATCH /v1/zones/:zoneId/invocations/:id/cancel', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'inv-1', status: 'cancel_requested' })
-    expect(client.query.mock.calls.some((call) => String(call[1]?.[1]).includes('invocation.cancel_requested'))).toBe(true)
+    const outboxCall = client.query.mock.calls.find((call) => String(call[0]).includes('caracal_outbox'))
+    expect(outboxCall?.[1]?.[1]).toBe('caracal.invocations.lifecycle')
+    expect(outboxCall?.[1]?.[2]).toContain('invocation.cancel_requested:')
   })
 })
