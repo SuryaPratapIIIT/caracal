@@ -12,6 +12,8 @@ export function newRedis(url: string): RedisClient {
     lazyConnect: false,
     enableAutoPipelining: true,
     maxRetriesPerRequest: 3,
+    keepAlive: 30_000,
+    connectTimeout: 10_000,
   })
 }
 
