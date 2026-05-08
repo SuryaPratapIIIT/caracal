@@ -6,13 +6,13 @@ FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
-COPY packages/ts-shared/package.json packages/ts-shared/package.json
+COPY packages/core/ts/package.json packages/core/ts/package.json
 RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --filter @caracalai/api...
-COPY packages/ts-shared/tsconfig.json packages/ts-shared/tsconfig.json
-COPY packages/ts-shared/src packages/ts-shared/src
+COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
+COPY packages/core/ts/src packages/core/ts/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.json
 COPY apps/api/src apps/api/src
-RUN pnpm --filter @caracalai/shared build && \
+RUN pnpm --filter @caracalai/core build && \
     pnpm --filter @caracalai/api build && \
     pnpm --filter @caracalai/api deploy --prod --legacy /out
 

@@ -3,7 +3,7 @@
 //
 // Agent coordinator configuration loaded strictly from environment.
 
-import { getenv, mustGetenv } from '@caracalai/shared'
+import { getenv, mustGetenv } from '@caracalai/core'
 
 function intEnv(key: string, fallback: number, min = 1): number {
   const raw = process.env[key]

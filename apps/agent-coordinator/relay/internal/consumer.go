@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/garudex-labs/caracal/shared/config"
-	sharedcrypto "github.com/garudex-labs/caracal/shared/crypto"
+	"github.com/garudex-labs/caracal/core/config"
+	sharedcrypto "github.com/garudex-labs/caracal/core/crypto"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
