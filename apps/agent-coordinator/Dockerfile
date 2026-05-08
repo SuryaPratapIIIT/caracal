@@ -6,8 +6,11 @@
 FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS go-builder
 WORKDIR /build
 COPY go.work go.work
-COPY packages/shared/ packages/shared/
-COPY packages/caracalai-mcp-go/ packages/caracalai-mcp-go/
+COPY packages/core/go/ packages/core/go/
+COPY packages/identity/go/ packages/identity/go/
+COPY packages/revocation/go/ packages/revocation/go/
+COPY packages/transport-mcp/go/ packages/transport-mcp/go/
+COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
 COPY services/sts/ services/sts/
 COPY services/audit/ services/audit/
 COPY services/gateway/ services/gateway/
@@ -21,13 +24,13 @@ FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/agent-coordinator/package.json apps/agent-coordinator/package.json
-COPY packages/ts-shared/package.json packages/ts-shared/package.json
-RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --filter @caracalai/agent-coordinator...
-COPY packages/ts-shared/tsconfig.json packages/ts-shared/tsconfig.json
-COPY packages/ts-shared/src packages/ts-shared/src
+COPY packages/core/ts/package.json packages/core/ts/package.json
+RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/agent-coordinator...
+COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
+COPY packages/core/ts/src packages/core/ts/src
 COPY apps/agent-coordinator/tsconfig.json apps/agent-coordinator/tsconfig.json
 COPY apps/agent-coordinator/src/ apps/agent-coordinator/src/
-RUN pnpm --filter @caracalai/shared build && \
+RUN pnpm --filter @caracalai/core build && \
     pnpm --filter @caracalai/agent-coordinator build && \
     pnpm --filter @caracalai/agent-coordinator deploy --prod --legacy /out
 

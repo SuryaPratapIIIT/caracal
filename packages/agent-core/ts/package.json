@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/agent-core"
+    "test": "vitest run --root ../../.. tests/typescript/unit/agent-core",
+    "prepare": "tsc"
   },
   "dependencies": {
     "@caracalai/oauth": "workspace:*",

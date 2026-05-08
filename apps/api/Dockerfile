@@ -7,7 +7,7 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages/core/ts/package.json packages/core/ts/package.json
-RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --filter @caracalai/api...
+RUN npm install -g pnpm@10.28.0 && pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/api...
 COPY packages/core/ts/tsconfig.json packages/core/ts/tsconfig.json
 COPY packages/core/ts/src packages/core/ts/src
 COPY apps/api/tsconfig.json apps/api/tsconfig.json

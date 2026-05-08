@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/admin"
+    "test": "vitest run --root ../../.. tests/typescript/unit/admin",
+    "prepare": "tsc"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
