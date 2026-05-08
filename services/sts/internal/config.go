@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/garudex-labs/caracal/shared/config"
+	"github.com/garudex-labs/caracal/core/config"
 )
 
 type Config struct {

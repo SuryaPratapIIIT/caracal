@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/shared/crypto"
+	sharedcrypto "github.com/garudex-labs/caracal/core/crypto"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

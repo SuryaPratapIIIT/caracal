@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	sharederr "github.com/garudex-labs/caracal/shared/errors"
+	sharederr "github.com/garudex-labs/caracal/core/errors"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

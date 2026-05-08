@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	sharederr "github.com/garudex-labs/caracal/shared/errors"
+	sharederr "github.com/garudex-labs/caracal/core/errors"
 )
 
 const (
