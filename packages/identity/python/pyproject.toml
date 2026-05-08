@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caracalai-identity"
+version = "0.1.0"
+description = "Caracal JWT verification, JWKS cache, scope evaluation, and claim shapes"
+requires-python = ">=3.11"
+dependencies = [
+  "PyJWT>=2.10.0",
+  "httpx>=0.28.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["caracalai_identity"]
