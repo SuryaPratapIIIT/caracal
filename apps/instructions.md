@@ -12,4 +12,4 @@
 ## Forbidden
 - Must not contain standalone Go services with an independent lifecycle; those belong in `services/`.
 - Must not contain infra configuration (Docker Compose, SQL, Redis config) outside per-app `Dockerfile`s.
-- Must not place shared library code here; shared TS code belongs in `packages/ts-*` and shared Go code in `packages/shared/`.
+- Must not place shared library code here; shared TS code belongs in `packages/ts-*` and shared Go code in `packages/core/go/`.

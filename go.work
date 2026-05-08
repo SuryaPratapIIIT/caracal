@@ -5,6 +5,9 @@ use (
 	./services/audit
 	./services/gateway
 	./apps/agent-coordinator/relay
-	./packages/shared
-	./packages/caracalai-mcp-go
+	./packages/core/go
+	./packages/identity/go
+	./packages/revocation/go
+	./packages/transport-mcp/go
+	./packages/framework-adaptor/mcp-nethttp/go
 )
