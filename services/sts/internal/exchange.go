@@ -28,6 +28,7 @@ const (
 type delegationProof struct {
 	edge       *DelegationEdge
 	path       []string
+	chain      []ChainHop
 	graphEpoch int64
 }
 
@@ -157,6 +158,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusForbidden, refErr
 	}
 
+	delegationMeta := delegationAuditMeta(delegation)
+
 	scopes := strings.Fields(req.Scope)
 	var grantedResources []string
 	grantedUpstreams := map[string]string{}
@@ -234,7 +237,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		s.auditBuffer.Emit(buildAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-			map[string]interface{}{"resource": resource.Identifier}, bundle))
+			mergeAuditMeta(map[string]interface{}{"resource": resource.Identifier}, delegationMeta), bundle))
 
 		// Only an explicit "complete" status is treated as a usable decision; any
 		// other value (partial, error, future enum) is a hard deny so an unknown
@@ -317,9 +320,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		issueParams.SourceSessionID = delegation.edge.SourceSessionID
 		issueParams.TargetSessionID = delegation.edge.TargetSessionID
 		issueParams.DelegationPath = delegation.path
+		issueParams.DelegationChain = delegation.chain
 		issueParams.GraphEpoch = delegation.graphEpoch
-		// On-behalf is the immediate issuer in the delegation chain; surface it in the
-		// JWT so downstream resources can render audit subjects without re-walking the graph.
 		issueParams.OnBehalfOf = delegation.edge.IssuerAppID
 	}
 	token, jti, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
@@ -439,6 +441,36 @@ func buildAuditEventWithBundle(requestID, zoneID, decision, status string, resul
 		MetadataJSON:            metaJSON,
 		OccurredAt:              time.Now(),
 	}
+}
+
+// delegationAuditMeta returns audit metadata extracted from a delegation proof.
+// When delegation is nil, returns nil (no delegation active).
+func delegationAuditMeta(d *delegationProof) map[string]interface{} {
+	if d == nil {
+		return nil
+	}
+	hops := make([]map[string]interface{}, len(d.chain))
+	for i, h := range d.chain {
+		hops[i] = map[string]interface{}{
+			"app":     h.AppID,
+			"session": h.AgentSessionID,
+			"edge":    h.DelegationEdgeID,
+		}
+	}
+	return map[string]interface{}{
+		"delegation_edge_id":    d.edge.ID,
+		"delegation_chain":      hops,
+		"delegation_hop_count":  len(d.path),
+		"delegation_graph_epoch": d.graphEpoch,
+	}
+}
+
+// mergeAuditMeta merges extra key/value pairs into base, returning base.
+func mergeAuditMeta(base, extra map[string]interface{}) map[string]interface{} {
+	for k, v := range extra {
+		base[k] = v
+	}
+	return base
 }
 
 func stepUpRequired(result *OPAResult) string {
@@ -564,7 +596,51 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	return &delegationProof{edge: edge, path: path, graphEpoch: graphEpoch}, nil
+	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target)
+	if chainErr != nil {
+		return nil, chainErr
+	}
+	return &delegationProof{edge: edge, path: path, chain: chain, graphEpoch: graphEpoch}, nil
+}
+
+// buildDelegationChain resolves each edge id along the path to a chain hop the
+// resource side can audit and authorize against. The chain walks from the
+// originating issuer to the immediate receiver in order.
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession) ([]ChainHop, *sharederr.CaracalError) {
+	if len(path) == 0 {
+		return nil, nil
+	}
+	hops := make([]ChainHop, 0, len(path)+1)
+	var prevReceiverApp string
+	for _, edgeID := range path {
+		var hopEdge *DelegationEdge
+		if edgeID == edge.ID {
+			hopEdge = edge
+		} else {
+			fetched, err := s.db.GetDelegationEdge(ctx, edgeID)
+			if err != nil || fetched == nil {
+				return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
+			}
+			hopEdge = fetched
+		}
+		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
+			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+		}
+		hops = append(hops, ChainHop{
+			AppID:            hopEdge.IssuerAppID,
+			AgentSessionID:   hopEdge.SourceSessionID,
+			DelegationEdgeID: hopEdge.ID,
+		})
+		prevReceiverApp = hopEdge.ReceiverAppID
+	}
+	hops = append(hops, ChainHop{
+		AppID:          edge.ReceiverAppID,
+		AgentSessionID: target.ID,
+	})
+	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
+		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
+	}
+	return hops, nil
 }
 
 func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, error) {

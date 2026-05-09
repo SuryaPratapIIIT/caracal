@@ -172,6 +172,7 @@ type stubDB struct {
 	agentIndex    int
 	agentErr      error
 	edge          *DelegationEdge
+	edges         map[string]*DelegationEdge
 	edgeErr       error
 	path          []string
 	pathErr       error
@@ -196,7 +197,12 @@ func (s *stubDB) UpdateGrantTokens(_ context.Context, _ string, _ int, _, _ []by
 func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubDB) GetDelegationEdge(_ context.Context, _ string) (*DelegationEdge, error) {
+func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdge, error) {
+	if s.edges != nil {
+		if e, ok := s.edges[id]; ok {
+			return e, s.edgeErr
+		}
+	}
 	return s.edge, s.edgeErr
 }
 func (s *stubDB) GetResourceRateLimit(_ context.Context, _, _ string) (*ResourceRateLimit, error) {
@@ -676,22 +682,39 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 		SpawnedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
+	edges := map[string]*DelegationEdge{
+		"edge0": {
+			ID: "edge0", ZoneID: "zone1",
+			SourceSessionID: source.ID, TargetSessionID: "agent-mid1",
+			IssuerAppID: "app1", ReceiverAppID: "appA",
+			Status: "active", ExpiresAt: now.Add(time.Minute),
+		},
+		"edge2": {
+			ID: "edge2", ZoneID: "zone1",
+			SourceSessionID: "agent-mid1", TargetSessionID: target.ID,
+			IssuerAppID: "appA", ReceiverAppID: "app2",
+			Status: "active", ExpiresAt: now.Add(time.Minute),
+		},
+	}
+	edge1 := &DelegationEdge{
+		ID:              "edge1",
+		ZoneID:          "zone1",
+		SourceSessionID: source.ID,
+		TargetSessionID: target.ID,
+		IssuerAppID:     source.ApplicationID,
+		ReceiverAppID:   target.ApplicationID,
+		Scopes:          []string{"read"},
+		Status:          "active",
+		ExpiresAt:       now.Add(time.Minute),
+		ConstraintsJSON: []byte(`{"max_hops":3}`),
+	}
+	edges["edge1"] = edge1
 	db := &stubDB{
 		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge0", "edge1", "edge2"},
+		path:          []string{"edge1"},
 		graphEpoch:    12,
-		edge: &DelegationEdge{
-			ID:              "edge1",
-			ZoneID:          "zone1",
-			SourceSessionID: source.ID,
-			TargetSessionID: target.ID,
-			IssuerAppID:     source.ApplicationID,
-			ReceiverAppID:   target.ApplicationID,
-			Scopes:          []string{"read"},
-			Status:          "active",
-			ExpiresAt:       now.Add(time.Minute),
-			ConstraintsJSON: []byte(`{"max_hops":3}`),
-		},
+		edge:          edge1,
+		edges:         edges,
 	}
 	srv := &Server{db: db}
 	proof, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
@@ -699,8 +722,11 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	})
-	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
-		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
+	if err != nil || proof == nil || len(proof.path) != 1 || proof.graphEpoch != 12 {
+		t.Fatalf("want delegation proof, got proof=%#v err=%#v", proof, err)
+	}
+	if len(proof.chain) != 2 || proof.chain[0].AppID != "app1" || proof.chain[1].AppID != "app2" {
+		t.Fatalf("want 2-hop chain, got %#v", proof.chain)
 	}
 }
 
