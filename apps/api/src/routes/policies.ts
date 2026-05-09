@@ -5,7 +5,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createHash } from 'crypto'
+import { sha256Hex } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
@@ -23,10 +23,6 @@ const VersionBody = z.object({
   content: z.string().min(1),
   schema_version: z.string().default('2026-03-16'),
 })
-
-function sha256(s: string) {
-  return createHash('sha256').update(s).digest('hex')
-}
 
 function validateRego(content: string): string | null {
   return validatePolicySource(content)
@@ -71,7 +67,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
     const policyId = uuidv7()
     const versionId = uuidv7()
-    const contentSHA = sha256(body.content)
+    const contentSHA = sha256Hex(body.content)
     const createdBy = req.actor.name
 
     const client = await fastify.db.connect()
@@ -106,7 +102,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     if (regoErr) return reply.code(422).send({ error: 'invalid_rego', detail: regoErr })
 
     const versionId = uuidv7()
-    const contentSHA = sha256(body.content)
+    const contentSHA = sha256Hex(body.content)
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')

@@ -5,8 +5,8 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { isProduction, loadZoneKek, open, seal } from '@caracalai/core'
+import { generateKeyPairSync, randomBytes } from 'node:crypto'
+import { isProduction, loadZoneKek, open, seal, sha256Hex } from '@caracalai/core'
 
 const ZONE_ID = 'zone1'
 const APP_ID = 'app1'
@@ -35,10 +35,6 @@ interface BootstrapResult {
   scope: string
   rotated: boolean
   signing_key_resealed?: boolean
-}
-
-function sha256Hex(data: string | Buffer): string {
-  return createHash('sha256').update(data).digest('hex')
 }
 
 function generateSigningKeyPem(): Buffer {

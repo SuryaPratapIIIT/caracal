@@ -53,7 +53,7 @@ function loadConfig(): CliConfig | undefined {
   candidates.push(join(xdg, 'caracal', 'caracal.toml'))
   for (const p of candidates) {
     if (!existsSync(p)) continue
-    try { return parse(readFileSync(p, 'utf8')) as unknown as CliConfig } catch { /* ignore */ }
+    try { return parse(readFileSync(p, 'utf8')) as unknown as CliConfig } catch { /* Try the next config candidate. */ }
   }
   return undefined
 }
