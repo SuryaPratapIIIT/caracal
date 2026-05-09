@@ -88,21 +88,29 @@ func (k *KeyCache) Invalidate(zoneID string) {
 	k.mu.Unlock()
 }
 
+// ChainHop is a single step in the delegation chain attribution.
+type ChainHop struct {
+	AppID            string `json:"app"`
+	AgentSessionID   string `json:"session,omitempty"`
+	DelegationEdgeID string `json:"edge,omitempty"`
+}
+
 // Claims is the full Caracal JWT claim set.
 type Claims struct {
 	jwt.RegisteredClaims
-	ZoneID           string   `json:"zone_id"`
-	ClientID         string   `json:"client_id"`
-	Scope            string   `json:"scope,omitempty"`
-	SID              string   `json:"sid"`
-	Target           []string `json:"target,omitempty"`
-	OnBehalf         string   `json:"on_behalf,omitempty"`
-	AgentSessionID   string   `json:"agent_session_id,omitempty"`
-	DelegationEdgeID string   `json:"delegation_edge_id,omitempty"`
-	SourceSessionID  string   `json:"source_session_id,omitempty"`
-	TargetSessionID  string   `json:"target_session_id,omitempty"`
-	DelegationPath   []string `json:"delegation_path,omitempty"`
-	GraphEpoch       int64    `json:"delegation_graph_epoch,omitempty"`
+	ZoneID           string     `json:"zone_id"`
+	ClientID         string     `json:"client_id"`
+	Scope            string     `json:"scope,omitempty"`
+	SID              string     `json:"sid"`
+	Target           []string   `json:"target,omitempty"`
+	AgentSessionID   string     `json:"agent_session_id,omitempty"`
+	DelegationEdgeID string     `json:"delegation_edge_id,omitempty"`
+	SourceSessionID  string     `json:"source_session_id,omitempty"`
+	TargetSessionID  string     `json:"target_session_id,omitempty"`
+	DelegationPath   []string   `json:"delegation_path,omitempty"`
+	DelegationChain  []ChainHop `json:"delegation_chain,omitempty"`
+	HopCount         int        `json:"hop_count,omitempty"`
+	GraphEpoch       int64      `json:"delegation_graph_epoch,omitempty"`
 }
 
 // IssueParams holds everything needed to produce a signed JWT.
@@ -114,12 +122,12 @@ type IssueParams struct {
 	Scopes           string
 	Resources        []string
 	TTL              time.Duration
-	OnBehalfOf       string
 	AgentSessionID   string
 	DelegationEdgeID string
 	SourceSessionID  string
 	TargetSessionID  string
 	DelegationPath   []string
+	DelegationChain  []ChainHop
 	GraphEpoch       int64
 }
 
@@ -147,12 +155,13 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		Scope:            params.Scopes,
 		SID:              params.SID,
 		Target:           params.Resources,
-		OnBehalf:         params.OnBehalfOf,
 		AgentSessionID:   params.AgentSessionID,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,
 		DelegationPath:   params.DelegationPath,
+		DelegationChain:  params.DelegationChain,
+		HopCount:         len(params.DelegationPath),
 		GraphEpoch:       params.GraphEpoch,
 	}
 
