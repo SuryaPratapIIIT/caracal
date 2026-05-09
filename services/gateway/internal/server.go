@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/garudex-labs/caracal/core/logging"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
@@ -24,15 +25,16 @@ type requestIDKey struct{}
 
 // Server owns the HTTP listener and its dependencies.
 type Server struct {
-	cfg     Config
-	log     zerolog.Logger
-	sts     *stsClient
-	guard   *upstreamGuard
-	tracker *jtiTracker
+	cfg      Config
+	log      zerolog.Logger
+	sts      *stsClient
+	guard    *upstreamGuard
+	tracker  *jtiTracker
+	bindings *bindingStore
 }
 
 // New constructs a Server from environment configuration.
-func New(_ context.Context) (*Server, error) {
+func New(ctx context.Context) (*Server, error) {
 	cfg := loadConfig()
 	log := logging.New("gateway")
 	var tracker *jtiTracker
@@ -45,18 +47,28 @@ func New(_ context.Context) (*Server, error) {
 	} else {
 		log.Warn().Msg("REDIS_URL unset; jti replay detection disabled")
 	}
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	bindings := newBindingStore(pool, log)
+	if err := bindings.Reload(ctx); err != nil {
+		return nil, err
+	}
 	return &Server{
-		cfg:     cfg,
-		log:     log,
-		sts:     newSTSClient(cfg.STSURL, cfg.STSTimeout),
-		guard:   newUpstreamGuard(cfg.UpstreamHostAllowlist, cfg.AllowPrivateUpstreams),
-		tracker: tracker,
+		cfg:      cfg,
+		log:      log,
+		sts:      newSTSClient(cfg.STSURL, cfg.STSTimeout),
+		guard:    newUpstreamGuard(cfg.UpstreamHostAllowlist, cfg.AllowPrivateUpstreams),
+		tracker:  tracker,
+		bindings: bindings,
 	}, nil
 }
 
 // Run starts the HTTP(S) listener and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
-	p := newProxy(s.sts, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.cfg.ResourceClientBindings, s.tracker)
+	go s.bindings.StartPolling(ctx)
+	p := newProxy(s.sts, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

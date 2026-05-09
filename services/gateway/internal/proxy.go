@@ -22,6 +22,8 @@ import (
 )
 
 // preflightWindow gives STS time to mint a fresh token before the inbound bearer expires.
+// The window is consulted via an unverified JWT peek, so it is a UX optimisation only —
+// signature validity is established at STS exchange and at the upstream resource.
 const preflightWindow = 35 * time.Second
 
 // proxy implements the gateway's reverse-proxy handler.
@@ -31,11 +33,11 @@ type proxy struct {
 	client   *http.Client
 	log      zerolog.Logger
 	maxBytes int64
-	bindings map[string]string
+	bindings *bindingStore
 	tracker  *jtiTracker
 }
 
-func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings map[string]string, tracker *jtiTracker) *proxy {
+func newProxy(sts *stsClient, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker *jtiTracker) *proxy {
 	transport := &http.Transport{
 		DialContext:           guard.SafeDialContext(5*time.Second, 30*time.Second),
 		MaxIdleConns:          200,
@@ -92,7 +94,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
 		return
 	}
-	clientID, ok := p.bindings[resource]
+	clientID, ok := p.bindings.Get(resource)
 	if !ok {
 		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
 		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
@@ -111,7 +113,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
-	p.tracker.Observe(r.Context(), jwtJTI(bearer), exp, requestID, resource, clientID, tokenFingerprint(bearer))
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, requestID, resource, clientID, tokenFingerprint(bearer)) {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
+		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: jti replay")
+		return
+	}
 
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
 	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, clientID, resource, requestID)
