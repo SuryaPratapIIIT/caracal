@@ -8,7 +8,6 @@ import {
   buildAdminClient,
   fail,
   flagBool,
-  flagString,
   parseArgs,
   printJSON,
   printTable,
