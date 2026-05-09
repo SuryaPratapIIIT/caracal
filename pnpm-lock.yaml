@@ -20,6 +20,9 @@ importers:
       '@caracalai/core':
         specifier: workspace:*
         version: link:../../packages/core/ts
+      '@caracalai/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity/ts
       fastify:
         specifier: ^5.2.1
         version: 5.8.5

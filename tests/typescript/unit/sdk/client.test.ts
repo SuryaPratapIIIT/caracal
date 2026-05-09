@@ -10,9 +10,13 @@ import {
   Caracal,
 } from "../../../../packages/sdk/ts/src/index.js";
 import {
-  HeaderAgentSession,
-  HeaderSubjectToken,
-  HeaderHop,
+  HeaderAuthorization,
+  HeaderTraceparent,
+  HeaderBaggage,
+  BaggageAgentSession,
+  BaggageHop,
+  parseBaggage,
+  parseTraceparent,
 } from "../../../../packages/sdk/ts/src/advanced.js";
 
 const dummyConfig = {
@@ -40,16 +44,17 @@ describe("Caracal.fromEnv", () => {
 });
 
 describe("Caracal.headers", () => {
-  it("returns subject token when no context bound", () => {
+  it("emits W3C envelope when no context bound", () => {
     const c = new Caracal(dummyConfig);
     const h = c.headers();
-    expect(h[HeaderSubjectToken]).toBe("tok");
-    expect(h[HeaderHop]).toBe("0");
+    expect(h[HeaderAuthorization]).toBe("Bearer tok");
+    expect(parseTraceparent(h[HeaderTraceparent]!)).toBeTruthy();
+    expect(parseBaggage(h[HeaderBaggage])[BaggageHop]).toBe("0");
   });
 });
 
 describe("middleware + bindFromHeaders", () => {
-  it("binds inbound envelope and runs handler with current() resolvable", async () => {
+  it("binds inbound W3C envelope and exposes claims through Caracal.context()", async () => {
     const c = new Caracal(dummyConfig);
     let seen = "";
     const mw = c.middleware();
@@ -57,9 +62,10 @@ describe("middleware + bindFromHeaders", () => {
       mw(
         {
           headers: {
-            [HeaderSubjectToken]: "inbound",
-            [HeaderAgentSession]: "sess1",
-            [HeaderHop]: "2",
+            [HeaderAuthorization]: "Bearer inbound",
+            [HeaderTraceparent]:
+              "00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01",
+            [HeaderBaggage]: `${BaggageAgentSession}=sess1,${BaggageHop}=2`,
           },
         },
         {},
@@ -89,6 +95,7 @@ describe("caracal.fetch", () => {
     const c = new Caracal({ ...dummyConfig, coordinator: { baseUrl: "http://c", fetchImpl: fakeFetch } });
     await c.fetch("http://api/x");
     expect(calls).toHaveLength(1);
-    expect(calls[0].headers.get(HeaderSubjectToken)).toBe("tok");
+    expect(calls[0].headers.get(HeaderAuthorization)).toBe("Bearer tok");
+    expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy();
   });
 });

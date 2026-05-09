@@ -14,9 +14,13 @@ from caracalai_sdk import (
 )
 from caracalai_sdk.advanced import (
     CoordinatorClient,
-    HEADER_AGENT_SESSION,
-    HEADER_HOP,
-    HEADER_SUBJECT_TOKEN,
+    HEADER_AUTHORIZATION,
+    HEADER_BAGGAGE,
+    HEADER_TRACEPARENT,
+    BAGGAGE_AGENT_SESSION,
+    BAGGAGE_HOP,
+    parse_baggage,
+    parse_traceparent,
     current,
     try_current,
 )
@@ -55,8 +59,9 @@ class HeadersTests(unittest.TestCase):
     def test_no_context_falls_back_to_subject_token(self) -> None:
         c = _build_caracal()
         h = c.headers()
-        self.assertEqual(h[HEADER_SUBJECT_TOKEN], "tok")
-        self.assertEqual(h[HEADER_HOP], "0")
+        self.assertEqual(h[HEADER_AUTHORIZATION], "Bearer tok")
+        self.assertIsNotNone(parse_traceparent(h[HEADER_TRACEPARENT]))
+        self.assertEqual(parse_baggage(h.get(HEADER_BAGGAGE)).get(BAGGAGE_HOP), "0")
 
 
 class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
@@ -74,9 +79,15 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         scope = {
             "type": "http",
             "headers": [
-                (HEADER_SUBJECT_TOKEN.encode(), b"inbound"),
-                (HEADER_AGENT_SESSION.encode(), b"sess9"),
-                (HEADER_HOP.encode(), b"3"),
+                (HEADER_AUTHORIZATION.encode(), b"Bearer inbound"),
+                (
+                    HEADER_TRACEPARENT.encode(),
+                    b"00-0123456789abcdef0123456789abcdef-aabbccddeeff0011-01",
+                ),
+                (
+                    HEADER_BAGGAGE.encode(),
+                    f"{BAGGAGE_AGENT_SESSION}=sess9,{BAGGAGE_HOP}=3".encode(),
+                ),
             ],
         }
 
