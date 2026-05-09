@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
 import { caracalAuth } from '../../../../../packages/framework-adaptor/mcp-express/ts/src/middleware.js'
 
 function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknown } {
@@ -15,12 +16,14 @@ function makeMockRes(): Partial<Response> & { statusCode?: number; body?: unknow
 }
 
 describe('caracalAuth middleware', () => {
+  const revocations = new InMemoryRevocationStore()
+
   beforeEach(() => {
     vi.restoreAllMocks()
   })
 
   it('rejects request with no Authorization header', async () => {
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api' })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
     const req = { headers: {} } as Request
     const res = makeMockRes()
     const next = vi.fn()
@@ -30,7 +33,7 @@ describe('caracalAuth middleware', () => {
   })
 
   it('rejects request with non-Bearer scheme', async () => {
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api' })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
     const req = { headers: { authorization: 'Basic abc' } } as Request
     const res = makeMockRes()
     const next = vi.fn()
@@ -43,7 +46,7 @@ describe('caracalAuth middleware', () => {
       authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
       extractBearer: (h: string | undefined) => (h?.startsWith('Bearer ') ? h.slice(7).trim() : null),
     }))
-    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api' })
+    const middleware = caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', revocations })
     const req = { headers: { authorization: 'Bearer invalid.jwt.token' } } as Request
     const res = makeMockRes()
     const next = vi.fn()

@@ -17,6 +17,7 @@ function decodeCursor(raw: string | undefined): { ts: string; id: string } | nul
     const parsed = Cursor.safeParse(JSON.parse(json))
     return parsed.success ? parsed.data : null
   } catch {
+    // Malformed cursors restart pagination from the first page.
     return null
   }
 }

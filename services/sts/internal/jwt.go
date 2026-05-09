@@ -97,6 +97,7 @@ type Claims struct {
 	SID              string   `json:"sid"`
 	Target           []string `json:"target,omitempty"`
 	OnBehalf         string   `json:"on_behalf,omitempty"`
+	AgentSessionID   string   `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string   `json:"delegation_edge_id,omitempty"`
 	SourceSessionID  string   `json:"source_session_id,omitempty"`
 	TargetSessionID  string   `json:"target_session_id,omitempty"`
@@ -114,6 +115,7 @@ type IssueParams struct {
 	Resources        []string
 	TTL              time.Duration
 	OnBehalfOf       string
+	AgentSessionID   string
 	DelegationEdgeID string
 	SourceSessionID  string
 	TargetSessionID  string
@@ -146,6 +148,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		SID:              params.SID,
 		Target:           params.Resources,
 		OnBehalf:         params.OnBehalfOf,
+		AgentSessionID:   params.AgentSessionID,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,

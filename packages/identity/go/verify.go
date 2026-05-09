@@ -58,5 +58,6 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 
 	sub, _ := mapClaims["sub"].(string)
 	sid, _ := mapClaims["sid"].(string)
-	return Claims{Sub: sub, ZoneID: zoneID, Sid: sid, Scope: scope}, nil
+	agentSessionID, _ := mapClaims["agent_session_id"].(string)
+	return Claims{Sub: sub, ZoneID: zoneID, Sid: sid, Scope: scope, AgentSessionID: agentSessionID}, nil
 }

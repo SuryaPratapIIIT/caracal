@@ -28,6 +28,7 @@ class ThemeConfig(BaseModel):
 
 class LlmConfig(BaseModel):
     model: str
+    summarizerModel: str = ""
     temperature: float
 
 
@@ -64,6 +65,25 @@ class ContentConfig(BaseModel):
     disclaimer: str
 
 
+class PromptsConfig(BaseModel):
+    financeControl: str
+    regionalOrchestrator: str
+    workflowOrchestrator: str
+
+
+class WorkflowEntry(BaseModel):
+    id: str
+    label: str
+    focus: str
+    stages: list["StageEntry"] = []
+
+
+class StageEntry(BaseModel):
+    id: str
+    label: str
+    intent: str
+
+
 class AppConfig(BaseModel):
     company: str
     shortName: str
@@ -72,8 +92,13 @@ class AppConfig(BaseModel):
     regions: list[RegionEntry]
     providers: list[ProviderEntry]
     agentLayers: list[AgentLayerEntry]
+    workflows: list[WorkflowEntry]
     scenario: ScenarioConfig
     content: ContentConfig
+    prompts: PromptsConfig
+
+
+WorkflowEntry.model_rebuild()
 
 
 _config: AppConfig | None = None

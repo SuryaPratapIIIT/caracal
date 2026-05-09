@@ -5,7 +5,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createHash } from 'crypto'
+import { sha256Hex } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
@@ -28,10 +28,6 @@ const DCRBody = z.object({
   traits: z.array(z.string()).optional(),
   expires_in: z.number().int().positive().optional(),
 })
-
-function hashSecret(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex')
-}
 
 export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/applications', async (req, reply) => {
@@ -69,7 +65,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, consent)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, zone_id, name, registration_method, credential_type, traits, consent, created_at`,
-      [id, params.zoneId, body.name, body.registration_method, body.credential_type ?? 'public', body.client_secret ? hashSecret(body.client_secret) : null, body.traits ?? [], body.consent ? 'required' : 'implicit'],
+      [id, params.zoneId, body.name, body.registration_method, body.credential_type ?? 'public', body.client_secret ? sha256Hex(body.client_secret) : null, body.traits ?? [], body.consent ? 'required' : 'implicit'],
     )
     return reply.code(201).send(rows[0])
   })
@@ -84,7 +80,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     const update = buildPatchUpdate([params.id, params.zoneId], [
       patchColumn('name', body.name),
       patchColumn('credential_type', body.credential_type),
-      patchColumn('client_secret_hash', body.client_secret === undefined ? undefined : hashSecret(body.client_secret)),
+      patchColumn('client_secret_hash', body.client_secret === undefined ? undefined : sha256Hex(body.client_secret)),
       patchColumn('traits', body.traits),
       patchColumn('consent', body.consent === undefined ? undefined : body.consent ? 'required' : 'implicit'),
     ])
@@ -157,7 +153,7 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
         `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, expires_at)
          VALUES ($1, $2, $3, 'dcr', $4, $5, $6, $7)
          RETURNING id, zone_id, name, registration_method, credential_type, expires_at, created_at`,
-        [id, params.zoneId, body.name, body.credential_type ?? 'public', body.client_secret ? hashSecret(body.client_secret) : null, body.traits ?? [], expiresAt],
+        [id, params.zoneId, body.name, body.credential_type ?? 'public', body.client_secret ? sha256Hex(body.client_secret) : null, body.traits ?? [], expiresAt],
       )
       await client.query('COMMIT')
       return reply.code(201).send(rows[0])

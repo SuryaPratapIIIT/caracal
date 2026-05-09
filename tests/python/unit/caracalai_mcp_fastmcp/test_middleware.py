@@ -14,6 +14,7 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_mcp_fastmcp import CaracalAuth
+from caracalai_revocation import InMemoryRevocationStore
 
 
 class StubCache:
@@ -39,6 +40,7 @@ class CaracalAuthTests(unittest.IsolatedAsyncioTestCase):
         auth = CaracalAuth(
             "https://sts.example.com",
             "resource://api",
+            InMemoryRevocationStore(),
             required_scopes=["invoke"],
             expected_zone_id="zone2",
         )

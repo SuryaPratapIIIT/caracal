@@ -161,10 +161,8 @@ func (a *AuditBuffer) persistBatch(batch []AuditEvent) {
 	a.log.Warn().Str("path", path).Int("count", len(batch)).Msg("audit batch persisted to disk for later replay")
 }
 
-// replayPending streams every previously-persisted file to Redis. A file is deleted
-// only after every event in it has been XAdded successfully; partial successes leave
-// the file in place for a future retry, which is safe because each event carries a
-// unique ID and the consumer side dedupes by it.
+// replayPending streams persisted audit events to Redis for recovery. Files persist
+// until fully consumed; XAdd failures leave files intact for retry.
 func (a *AuditBuffer) replayPending(ctx context.Context) {
 	entries, err := os.ReadDir(a.replayDir)
 	if err != nil {

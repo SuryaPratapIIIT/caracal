@@ -11,7 +11,7 @@ export interface FastMcpAuthOptions {
   audience: string
   zoneId?: string
   requiredScopes?: string[]
-  revocations?: RevocationStore
+  revocations: RevocationStore
 }
 
 export interface FastMcpContext {

@@ -3,7 +3,7 @@
 //
 // ChaCha20-Poly1305 envelope encryption that matches the Go shared/crypto format.
 
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 
 const KEY_BYTES = 32;
 const NONCE_BYTES = 12;
@@ -12,6 +12,14 @@ const TAG_BYTES = 16;
 export interface SealedSecret {
   ciphertext: Buffer;
   nonce: Buffer;
+}
+
+export function sha256(input: string | Buffer): Buffer {
+  return createHash('sha256').update(input).digest();
+}
+
+export function sha256Hex(input: string | Buffer): string {
+  return createHash('sha256').update(input).digest('hex');
 }
 
 export function loadZoneKek(): Buffer {

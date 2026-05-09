@@ -56,6 +56,7 @@ type OPAPrincipal struct {
 	ID             string `json:"id"`
 	ZoneID         string `json:"zone_id"`
 	CredentialType string `json:"credential_type,omitempty"`
+	AgentSessionID string `json:"agent_session_id,omitempty"`
 }
 
 type OPAResource struct {

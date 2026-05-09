@@ -18,7 +18,7 @@ export interface MiddlewareOptions {
   audience: string
   zoneId?: string
   requiredScopes?: string[]
-  revocations?: RevocationStore
+  revocations: RevocationStore
 }
 
 export interface CaracalRequest extends Request {
@@ -64,7 +64,7 @@ export function caracalAuth(opts: MiddlewareOptions): RequestHandler {
       return
     }
 
-    if (opts.revocations && claims.sid && (await opts.revocations.isRevoked(claims.sid))) {
+    if (claims.sid && (await opts.revocations.isRevoked(claims.sid))) {
       res.status(401).json({ error: 'invalid_token', error_description: 'Session revoked' })
       return
     }

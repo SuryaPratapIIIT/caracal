@@ -10,6 +10,7 @@ COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/revocation/go/ packages/revocation/go/
 COPY packages/transport-mcp/go/ packages/transport-mcp/go/
+COPY packages/caracalai-mcp/go/ packages/caracalai-mcp/go/
 COPY packages/framework-adaptor/mcp-nethttp/go/ packages/framework-adaptor/mcp-nethttp/go/
 COPY services/sts/ services/sts/
 COPY services/audit/ services/audit/

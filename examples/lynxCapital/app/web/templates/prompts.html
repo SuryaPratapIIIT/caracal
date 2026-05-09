@@ -24,9 +24,9 @@
   border-radius: 3px; font-size: 10px; font-weight: 700;
   letter-spacing: 0.05em; text-transform: uppercase;
 }
-.badge-allow   { background: #e6f5ec; color: var(--success); }
-.badge-partial { background: #fff7e6; color: var(--warning); }
-.badge-deny    { background: #fdecea; color: var(--danger); }
+.badge-single  { background: #e6f5ec; color: var(--success); }
+.badge-multi   { background: #fff7e6; color: var(--warning); }
+.badge-full    { background: #e6efff; color: var(--accent); }
 
 .col-desc { font-size: 11px; color: #5a6478; margin-bottom: 12px; }
 
@@ -72,32 +72,32 @@
 
   <div class="columns-grid">
 
-    <div class="col" id="col-allow">
+    <div class="col" id="col-single">
       <div class="col-header">
-        <span class="col-badge badge-allow">✓ Succeeds</span>
+        <span class="col-badge badge-single">Single region</span>
       </div>
-      <p class="col-desc">Payment rail is registered. Agents spawn, delegate, and Caracal allows the core action.</p>
-      <div class="cards-list" id="cards-allow">
+      <p class="col-desc">One regional orchestrator runs the pipeline for a single region.</p>
+      <div class="cards-list" id="cards-single">
         <div class="col-loading">Loading…</div>
       </div>
     </div>
 
-    <div class="col" id="col-partial">
+    <div class="col" id="col-multi">
       <div class="col-header">
-        <span class="col-badge badge-partial">⚡ Partial</span>
+        <span class="col-badge badge-multi">Multi-region</span>
       </div>
-      <p class="col-desc">Pre-payment steps are denied. Agents note denials and continue — payments still execute.</p>
-      <div class="cards-list" id="cards-partial">
+      <p class="col-desc">Finance Control dispatches several regional orchestrators in parallel.</p>
+      <div class="cards-list" id="cards-multi">
         <div class="col-loading">Loading…</div>
       </div>
     </div>
 
-    <div class="col" id="col-deny">
+    <div class="col" id="col-full">
       <div class="col-header">
-        <span class="col-badge badge-deny">✗ Denied</span>
+        <span class="col-badge badge-full">Full pipeline</span>
       </div>
-      <p class="col-desc">The primary requested action is an unregistered tool. Caracal blocks at first enforcement.</p>
-      <div class="cards-list" id="cards-deny">
+      <p class="col-desc">End-to-end runs across OCR, ERP, compliance, tax, and payment services.</p>
+      <div class="cards-list" id="cards-full">
         <div class="col-loading">Loading…</div>
       </div>
     </div>
@@ -136,7 +136,7 @@ function _card(p) {
 async function loadPrompts() {
   const r = await fetch('/static/prompts.json');
   const d = await r.json();
-  for (const outcome of ['allow', 'partial', 'deny']) {
+  for (const outcome of ['single', 'multi', 'full']) {
     const container = document.getElementById(`cards-${outcome}`);
     container.innerHTML = '';
     (d[outcome] || []).forEach(p => container.appendChild(_card(p)));

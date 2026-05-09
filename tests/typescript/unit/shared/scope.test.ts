@@ -25,9 +25,7 @@ describe('parseScope', () => {
   })
 
   it('does not match the empty token (regression: split(" ") bug)', () => {
-    // The buggy form `'a  b'.split(' ')` yields ['a', '', 'b'] and naive
-    // `.includes('')` returned true. The canonical parser drops empties so
-    // hasScope('a b', '') is always false.
+    // Empty tokens from whitespace parsing must never match any scope.
     expect(parseScope('a  b').includes('')).toBe(false)
   })
 })

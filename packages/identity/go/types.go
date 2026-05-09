@@ -15,8 +15,9 @@ type Config struct {
 
 // Claims is the validated subset of a Caracal JWT payload.
 type Claims struct {
-	Sub    string
-	ZoneID string
-	Sid    string
-	Scope  string
+	Sub            string
+	ZoneID         string
+	Sid            string
+	Scope          string
+	AgentSessionID string
 }

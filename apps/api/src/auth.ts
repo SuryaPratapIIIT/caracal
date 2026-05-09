@@ -5,7 +5,8 @@
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
+import { sha256 } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import type { DB } from './db.js'
 
@@ -34,10 +35,6 @@ declare module 'fastify' {
 }
 
 const BEARER_PREFIX = 'Bearer '
-
-function sha256(input: string): Buffer {
-  return createHash('sha256').update(input).digest()
-}
 
 function bytesEqual(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b)

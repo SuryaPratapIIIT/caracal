@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// JTI replay tracker: SETNX-based per-token use marker that emits audit events on duplicate use.
+// JTI replay tracker: SETNX-based per-token use marker that rejects duplicate use and emits an audit event.
 
 package internal
 
@@ -21,9 +21,9 @@ const (
 	auditStream   = "caracal.audit.events"
 )
 
-// jtiTracker records the first use of every token's JTI and emits a replay_detected
-// audit event when the same JTI is presented a second time within the token's TTL.
-// A nil tracker is a no-op so deployments without REDIS_URL still serve traffic.
+// jtiTracker records the first use of every token's JTI and rejects subsequent
+// presentations of the same JTI within the token's TTL. A nil tracker is a no-op
+// so deployments without REDIS_URL still serve traffic but lose replay protection.
 type jtiTracker struct {
 	redis *RedisClient
 	log   zerolog.Logger
@@ -36,26 +36,26 @@ func newJTITracker(redis *RedisClient, log zerolog.Logger) *jtiTracker {
 	return &jtiTracker{redis: redis, log: log}
 }
 
-// Observe records the JTI as seen with TTL = time-until-exp. When SETNX fails because
-// the key already exists, the use is treated as a replay: an audit event is XAdded to
-// the standard audit stream and the gateway continues serving (signature/expiry
-// remain the primary access controls). Errors talking to Redis are logged but never
-// block the request.
-func (t *jtiTracker) Observe(ctx context.Context, jti string, exp time.Time, requestID, resource, clientID, subjectFP string) {
+// Check records the JTI as seen with TTL = time-until-exp. Returns true when the
+// caller may proceed (first use, or tracker disabled). Returns false on a
+// confirmed replay, after emitting a replay_detected audit event. Errors talking
+// to Redis fail open: the request proceeds and the error is logged, since STS
+// signature validation remains the primary access control.
+func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, requestID, resource, clientID, subjectFP string) bool {
 	if t == nil || jti == "" {
-		return
+		return true
 	}
 	ttl := time.Until(exp)
 	if ttl <= 0 {
-		return
+		return true
 	}
 	created, err := t.redis.SetNXTTL(ctx, seenJTIPrefix+jti, requestID, ttl)
 	if err != nil {
 		t.log.Warn().Err(err).Str("jti", jti).Msg("jti tracker setnx failed")
-		return
+		return true
 	}
 	if created {
-		return
+		return true
 	}
 	id, _ := uuid.NewV7()
 	meta, _ := json.Marshal(map[string]interface{}{
@@ -71,7 +71,7 @@ func (t *jtiTracker) Observe(ctx context.Context, jti string, exp time.Time, req
 			"id":                id.String(),
 			"event_type":        "replay_detected",
 			"request_id":        requestID,
-			"decision":          "warn",
+			"decision":          "deny",
 			"evaluation_status": "anomaly",
 			"metadata_json":     json.RawMessage(meta),
 			"occurred_at":       time.Now().UTC().Format(time.RFC3339Nano),
@@ -79,9 +79,9 @@ func (t *jtiTracker) Observe(ctx context.Context, jti string, exp time.Time, req
 	}
 	if err := t.redis.XAdd(ctx, auditStream, values); err != nil {
 		t.log.Error().Err(err).Str("jti", jti).Msg("replay_detected audit emit failed")
-		return
 	}
-	t.log.Warn().Str("jti", jti).Str("resource", resource).Str("client_id", clientID).Msg("jti replay detected")
+	t.log.Warn().Str("jti", jti).Str("resource", resource).Str("client_id", clientID).Msg("jti replay rejected")
+	return false
 }
 
 func mustMarshal(v interface{}) []byte {

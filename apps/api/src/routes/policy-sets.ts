@@ -5,7 +5,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createHash } from 'crypto'
+import { sha256Hex } from '@caracalai/core'
 import { v7 as uuidv7 } from 'uuid'
 import { STREAM_POLICY_INVALIDATE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
@@ -115,7 +115,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query('BEGIN')
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const manifestJSON = JSON.stringify(body.manifest)
-      const manifestSHA = createHash('sha256').update(manifestJSON).digest('hex')
+      const manifestSHA = sha256Hex(manifestJSON)
       const versionId = uuidv7()
 
       const { rows } = await client.query(

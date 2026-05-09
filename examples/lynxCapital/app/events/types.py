@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-Category = Literal["system", "agent", "delegation", "tool", "service", "caracal", "audit", "chat"]
+Category = Literal["system", "agent", "delegation", "tool", "service", "audit", "chat"]
 
 
 class Event(BaseModel):
@@ -98,17 +98,6 @@ def audit_record(run_id: str, agent_id: str, record: dict) -> Event:
     return _mk(run_id, "audit", "audit_record", agent_id=agent_id, record=record)
 
 
-def caracal_bind(run_id: str, agent_id: str, decision: str, reason: str = "", mandate_id: str | None = None) -> Event:
-    return _mk(run_id, "caracal", "caracal_bind", agent_id=agent_id, decision=decision, reason=reason, mandate_id=mandate_id)
-
-
-def caracal_enforce(run_id: str, agent_id: str, tool_id: str, decision: str, reason: str = "") -> Event:
-    return _mk(
-        run_id, "caracal", "caracal_enforce",
-        agent_id=agent_id, tool_id=tool_id, decision=decision, reason=reason,
-    )
-
-
 def chat_user(run_id: str, text: str) -> Event:
     return _mk(run_id, "chat", "chat_user", text=text)
 
@@ -189,5 +178,61 @@ def file_read(run_id: str, agent_id: str, path: str, size: int) -> Event:
     return _mk(run_id, "system", "file_read", agent_id=agent_id, path=path, size=size)
 
 
+def blackboard_post(run_id: str, agent_id: str, region: str | None, kind: str, content: str) -> Event:
+    return _mk(
+        run_id, "system", "blackboard_post",
+        agent_id=agent_id, region=region, kind=kind, content=content,
+    )
+
+
+def tool_retry(run_id: str, agent_id: str, tool_name: str, attempt: int, error: str) -> Event:
+    return _mk(
+        run_id, "system", "tool_retry",
+        agent_id=agent_id, tool_name=tool_name, attempt=attempt, error=error,
+    )
+
+
 def run_cancelled(run_id: str) -> Event:
     return _mk(run_id, "system", "run_cancelled")
+
+
+def stage_start(run_id: str, agent_id: str, stage: str, intent: str) -> Event:
+    return _mk(run_id, "system", "stage_start", agent_id=agent_id, stage=stage, intent=intent)
+
+
+def stage_end(run_id: str, agent_id: str, stage: str, summary: str) -> Event:
+    return _mk(run_id, "system", "stage_end", agent_id=agent_id, stage=stage, summary=summary)
+
+
+def replan(run_id: str, agent_id: str, reason: str, revision: int) -> Event:
+    return _mk(run_id, "system", "replan", agent_id=agent_id, reason=reason, revision=revision)
+
+
+def worker_acquire(run_id: str, agent_id: str, worker_id: str, role: str, scope: str) -> Event:
+    return _mk(
+        run_id, "system", "worker_acquire",
+        agent_id=agent_id, worker_id=worker_id, role=role, scope=scope,
+    )
+
+
+def worker_release(run_id: str, agent_id: str, worker_id: str, result: dict) -> Event:
+    return _mk(
+        run_id, "system", "worker_release",
+        agent_id=agent_id, worker_id=worker_id, result=result,
+    )
+
+
+def job_started(run_id: str, agent_id: str, job_id: str, kind: str, target: str) -> Event:
+    return _mk(
+        run_id, "system", "job_started",
+        agent_id=agent_id, job_id=job_id, job_kind=kind, target=target,
+    )
+
+
+def job_completed(run_id: str, agent_id: str, job_id: str, status: str, result: dict,
+                  kind: str = "", target: str = "") -> Event:
+    return _mk(
+        run_id, "system", "job_completed",
+        agent_id=agent_id, job_id=job_id, status=status, result=result,
+        job_kind=kind, target=target,
+    )

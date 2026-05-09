@@ -6,6 +6,7 @@
 ## Required
 - Must adapt the `@caracalai/transport-mcp` `authenticate` result onto an Express `RequestHandler`.
 - Must map every `AuthError` code to the matching HTTP status and JSON body.
+- Must require a `RevocationStore` on the middleware options and forward it to `authenticate`.
 
 ## Forbidden
 - Must not re-implement JWT verification or revocation lookup.

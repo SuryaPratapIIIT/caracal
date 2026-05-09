@@ -58,7 +58,16 @@ func newFakeSTS(t *testing.T, upstream string, calls *int32) *httptest.Server {
 func newProxyForTest(_ *testing.T, sts *httptest.Server, allowPrivate bool) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second)
 	guard := newUpstreamGuard(nil, allowPrivate)
-	return newProxy(stsClient, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second)
+	return newProxy(stsClient, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), nil)
+}
+
+// testBindings returns a bindingStore preloaded with the resource identifiers used
+// across proxy tests. The empty pool is safe because tests never trigger Reload.
+func testBindings() *bindingStore {
+	s := &bindingStore{log: zerolog.Nop(), pollInterval: defaultBindingPollInterval}
+	m := map[string]string{"r": "z:a", "r1": "z:a"}
+	s.cache.Store(&m)
+	return s
 }
 
 func doProxiedRequest(t *testing.T, p *proxy, method, target string, body io.Reader, hdr http.Header) *http.Response {
@@ -112,9 +121,8 @@ func TestProxyMalformedBearerRejectedWithoutSTSCall(t *testing.T) {
 	p := newProxyForTest(t, sts, true)
 
 	hdr := http.Header{
-		"Authorization":       {"Bearer not.a.jwt.4parts"},
-		"X-Caracal-Client-ID": {"a"},
-		"X-Caracal-Resource":  {"r"},
+		"Authorization":      {"Bearer not.a.jwt.4parts"},
+		"X-Caracal-Resource": {"r"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -133,9 +141,8 @@ func TestProxyExpiringBearerPreflightRejected(t *testing.T) {
 
 	tok := makeJWT(t, 5*time.Second)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"app1"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -157,8 +164,8 @@ func TestProxyMissingRoutingHeaders(t *testing.T) {
 
 	tok := makeJWT(t, time.Hour)
 	cases := []http.Header{
-		{"Authorization": {"Bearer " + tok}, "X-Caracal-Resource": {"r"}},
-		{"Authorization": {"Bearer " + tok}, "X-Caracal-Client-ID": {"a"}},
+		{"Authorization": {"Bearer " + tok}},
+		{"Authorization": {"Bearer " + tok}, "X-Caracal-Resource": {"r"}, "X-Caracal-Client-ID": {"a"}},
 	}
 	for i, hdr := range cases {
 		resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
@@ -175,9 +182,8 @@ func TestProxyPathTraversalBlocked(t *testing.T) {
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"app1"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/v1/../admin", nil, hdr)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -198,9 +204,8 @@ func TestProxySSRFBlocksLoopback(t *testing.T) {
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"app1"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusBadGateway {
@@ -224,7 +229,6 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
 		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"app1"},
 		"X-Caracal-Resource":  {"r1"},
 		"X-Caracal-Upstream":  {"shouldnt-leak"},
 		"Connection":          {"X-Hop-Custom"},
@@ -279,9 +283,8 @@ func TestProxySTSExchangedExactlyOncePerRequest(t *testing.T) {
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"app1"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -309,9 +312,8 @@ func TestProxyConcurrentRequestsEachExchange(t *testing.T) {
 	for i := 0; i < requests; i++ {
 		go func() {
 			hdr := http.Header{
-				"Authorization":       {"Bearer " + tok},
-				"X-Caracal-Client-ID": {"a"},
-				"X-Caracal-Resource":  {"r"},
+				"Authorization":      {"Bearer " + tok},
+				"X-Caracal-Resource": {"r"},
 			}
 			resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 			done <- resp.StatusCode
@@ -346,9 +348,8 @@ func TestProxyPathAndQueryComposition(t *testing.T) {
 	p := newProxyForTest(t, sts, true)
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"a"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/v1/items?shared=client&extra=1", nil, hdr)
 	if resp.StatusCode != http.StatusOK {
@@ -376,13 +377,12 @@ func TestProxyBodySizeLimitEnforced(t *testing.T) {
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second)
 	guard := newUpstreamGuard(nil, true)
-	p := newProxy(stsClient, guard, zerolog.New(io.Discard), 16, 2*time.Second)
+	p := newProxy(stsClient, guard, zerolog.New(io.Discard), 16, 2*time.Second, testBindings(), nil)
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"a"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "POST", "/x", strings.NewReader(strings.Repeat("a", 1024)), hdr)
 	if resp.StatusCode == http.StatusOK {
@@ -406,9 +406,8 @@ func TestProxySTSDeniedSurfacesError(t *testing.T) {
 	p := newProxyForTest(t, sts, true)
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"a"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusForbidden {
@@ -430,9 +429,8 @@ func TestProxySTSUnavailableMappedSafely(t *testing.T) {
 	p := newProxyForTest(t, sts, true)
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
-		"Authorization":       {"Bearer " + tok},
-		"X-Caracal-Client-ID": {"a"},
-		"X-Caracal-Resource":  {"r1"},
+		"Authorization":      {"Bearer " + tok},
+		"X-Caracal-Resource": {"r1"},
 	}
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, hdr)
 	if resp.StatusCode != http.StatusServiceUnavailable {
@@ -466,7 +464,6 @@ func TestProxySSEStreamsAndFlushes(t *testing.T) {
 	tok := makeJWT(t, time.Hour)
 	req, _ := http.NewRequest("GET", server.URL+"/sse", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("X-Caracal-Client-ID", "a")
 	req.Header.Set("X-Caracal-Resource", "r1")
 
 	resp, err := http.DefaultClient.Do(req)

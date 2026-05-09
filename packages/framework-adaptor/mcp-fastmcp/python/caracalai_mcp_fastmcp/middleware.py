@@ -16,9 +16,9 @@ class CaracalAuth:
         self,
         issuer: str,
         audience: str,
+        revocations: RevocationStore,
         required_scopes: list[str] | None = None,
         expected_zone_id: str | None = None,
-        revocations: RevocationStore | None = None,
     ) -> None:
         self.issuer = issuer
         self.audience = audience

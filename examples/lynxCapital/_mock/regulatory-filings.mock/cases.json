@@ -1,0 +1,42 @@
+{
+  "service": "regulatory-filings",
+  "actions": {
+    "aml_monitor_transaction": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-axiom-cloud":   {"vendor_id": "us-axiom-cloud",   "alert_level": "none",   "score": 12, "rules_triggered": []},
+        "br-saopaulo":      {"vendor_id": "br-saopaulo",      "alert_level": "low",    "score": 38, "rules_triggered": ["CROSS_BORDER_HIGH_RISK"]},
+        "us-summit-fin":    {"vendor_id": "us-summit-fin",    "alert_level": "medium", "score": 64, "rules_triggered": ["STRUCTURING_PATTERN"]},
+        "ru-sanctioned":    {"vendor_id": "ru-sanctioned",    "alert_level": "critical","score": 99, "rules_triggered": ["SANCTIONS_HIT", "OFAC_MATCH"]},
+        "default":          {"vendor_id": null,                "alert_level": "none",   "score": 8,  "rules_triggered": []}
+      }
+    },
+    "sanctions_screen_batch": {
+      "match_key": "batch_id",
+      "cases": {
+        "weekly-2026-05": {"batch_id": "weekly-2026-05", "screened": 4200, "hits": 2,  "review_required": 2, "completed_at": "2026-05-09T03:00:00Z"},
+        "daily-2026-05-08":{"batch_id": "daily-2026-05-08","screened": 612, "hits": 0, "review_required": 0, "completed_at": "2026-05-08T03:00:00Z"},
+        "default":         {"batch_id": null,             "screened": 0,    "hits": 0, "review_required": 0, "completed_at": "2026-05-09T03:00:00Z"}
+      }
+    },
+    "prepare_regulatory_filing": {
+      "match_key": "filing_type",
+      "cases": {
+        "FinCEN-CTR": {"filing_type": "FinCEN-CTR", "jurisdiction": "US", "period": "2026-04", "transactions_included": 38,  "status": "draft", "due_date": "2026-05-15"},
+        "FBAR":       {"filing_type": "FBAR",       "jurisdiction": "US", "period": "2025",     "transactions_included": 0,   "status": "ready", "due_date": "2026-04-15"},
+        "BACEN-RDE":  {"filing_type": "BACEN-RDE",  "jurisdiction": "BR", "period": "2026-04",  "transactions_included": 12,  "status": "draft", "due_date": "2026-05-30"},
+        "MAS-FATCA":  {"filing_type": "MAS-FATCA",  "jurisdiction": "SG", "period": "2025",     "transactions_included": 410, "status": "ready", "due_date": "2026-05-31"},
+        "default":    {"filing_type": null,         "jurisdiction": null, "period": null,        "transactions_included": 0,  "status": "draft", "due_date": null}
+      }
+    },
+    "attest_control": {
+      "match_key": "control_id",
+      "cases": {
+        "SOX-404-AP-01": {"control_id": "SOX-404-AP-01", "description": "AP segregation of duties", "status": "passed", "evidence_ref": "EV-AP-2026-05-01"},
+        "SOX-404-AP-02": {"control_id": "SOX-404-AP-02", "description": "Vendor approval threshold","status": "passed", "evidence_ref": "EV-AP-2026-05-02"},
+        "SOX-404-AP-03": {"control_id": "SOX-404-AP-03", "description": "Wire approval dual-sign",  "status": "exception","evidence_ref": "EV-AP-2026-05-03", "remediation": "Re-attest with both approvers"},
+        "default":       {"control_id": null,             "description": null,                       "status": "passed", "evidence_ref": null}
+      }
+    }
+  }
+}

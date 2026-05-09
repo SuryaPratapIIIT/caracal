@@ -147,6 +147,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 		challengeResolved = true
 	}
+	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
+		if aerr := s.validateAgentSessionOwnership(ctx, zoneID, app.ID, req.AgentSessionID); aerr != nil {
+			return nil, nil, http.StatusForbidden, aerr
+		}
+	}
 	delegation, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req)
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
@@ -197,6 +202,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				ID:             app.ID,
 				ZoneID:         zoneID,
 				CredentialType: derefStr(app.CredentialType),
+				AgentSessionID: req.AgentSessionID,
 			},
 			Resource: OPAResource{
 				Type:       "Resource",
@@ -297,13 +303,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 
 	issueParams := IssueParams{
-		ZoneID:    zoneID,
-		AppID:     app.ID,
-		SubjectID: subjectID,
-		SID:       sessID,
-		Scopes:    req.Scope,
-		Resources: grantedResources,
-		TTL:       ttl,
+		ZoneID:         zoneID,
+		AppID:          app.ID,
+		SubjectID:      subjectID,
+		SID:            sessID,
+		Scopes:         req.Scope,
+		Resources:      grantedResources,
+		TTL:            ttl,
+		AgentSessionID: req.AgentSessionID,
 	}
 	if req.DelegationEdgeID != "" {
 		issueParams.DelegationEdgeID = req.DelegationEdgeID
@@ -472,6 +479,21 @@ func delegationEdgeInput(proof *delegationProof) *OPADelegationEdge {
 		GraphEpoch:            proof.graphEpoch,
 		ConstraintsJSON:       edge.ConstraintsJSON,
 	}
+}
+
+// validateAgentSessionOwnership binds the asserted agent_session_id to the calling
+// application: the row must exist, be active in this zone, and be owned by app.ID.
+// This stops two apps in a zone from forging each other's agent identity by passing
+// a peer's agent_session_id.
+func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appID, agentSessionID string) *sharederr.CaracalError {
+	session, err := s.db.GetAgentSession(ctx, agentSessionID)
+	if err != nil || !activeAgentSession(session, zoneID, time.Now()) {
+		return sharederr.New(sharederr.AccessDenied, "agent session inactive or expired")
+	}
+	if session.ApplicationID != appID {
+		return sharederr.New(sharederr.AccessDenied, "agent session not owned by caller")
+	}
+	return nil
 }
 
 func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest) (*delegationProof, *sharederr.CaracalError) {

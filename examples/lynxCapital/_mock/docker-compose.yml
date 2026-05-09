@@ -1,11 +1,11 @@
-name: caracal-mock
+name: lynx-mock
 
 services:
   providers:
     build: .
-    image: caracal-mock-providers:latest
+    image: lynx-mock-providers:latest
     networks:
-      caracal-runtime:
+      lynx-mock-network:
         aliases:
           - mercury-bank.mock
           - wise-payouts.mock
@@ -27,6 +27,5 @@ services:
       start_period: 5s
 
 networks:
-  caracal-runtime:
-    external: true
-    name: ${CCL_RUNTIME_NETWORK:-caracal-runtime}
+  lynx-mock-network:
+    driver: bridge

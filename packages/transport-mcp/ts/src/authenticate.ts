@@ -17,7 +17,7 @@ export interface AuthDeps {
   audience: string
   zoneId?: string
   requiredScopes?: string[]
-  revocations?: RevocationStore
+  revocations: RevocationStore
 }
 
 export function extractBearer(authHeader: string | undefined): string | null {
@@ -38,7 +38,7 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
       zoneId: deps.zoneId,
       requiredScopes: deps.requiredScopes,
     })
-    if (deps.revocations && claims.sid && (await deps.revocations.isRevoked(claims.sid))) {
+    if (claims.sid && (await deps.revocations.isRevoked(claims.sid))) {
       return { ok: false, error: { code: 'session_revoked', description: 'Session revoked' } }
     }
     return { ok: true, principal: claims }

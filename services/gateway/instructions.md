@@ -9,6 +9,8 @@
 - Must perform a fresh STS exchange on every proxied request.
 - Must use github.com/garudex-labs/caracal/core/* for config, errors, and logging.
 - Must require STS_URL (https) and TLS_CERT_FILE+TLS_KEY_FILE; only INSECURE_STS=true and INSECURE_HTTP=true may relax these in dev.
+- Must require DATABASE_URL and load resource→client_id bindings from gateway_resource_bindings.
+- Must reload bindings periodically so newly registered resources are reachable without restart.
 - Must validate every STS-supplied upstream through upstreamGuard; the upstream Transport must use guard.SafeDialContext to re-validate at connect time.
 - Must strip RFC 7230 hop-by-hop headers and X-Caracal-* routing headers before forwarding upstream.
 - Must replace the inbound Authorization header with the STS-issued bearer token.
@@ -25,7 +27,7 @@
 - Must not forward to private/loopback/link-local/CGNAT/metadata IPs unless ALLOW_PRIVATE_UPSTREAMS=true.
 
 ## Environment Variables
-- Required: STS_URL.
+- Required: STS_URL, DATABASE_URL.
 - TLS: TLS_CERT_FILE, TLS_KEY_FILE (both or neither).
 - Timeouts: STS_TIMEOUT, UPSTREAM_TIMEOUT, READ_HEADER_TIMEOUT, READ_TIMEOUT, WRITE_TIMEOUT, IDLE_TIMEOUT.
 - Limits: MAX_REQUEST_BYTES.
