@@ -409,11 +409,289 @@ async def _run_regional_orchestrator(run_id, runner, parent, memory_store, plans
     return result
 
 
+# ---------- Workflow domain tools ----------
+
+
+def _build_workflow_domain_tools(run_id, runner, parent, workflow_id):
+    """Tools available to a Workflow Orchestrator. Each domain action spawns a
+    short-lived worker so events carry per-action attribution."""
+
+    def _worker(role: str, scope: str) -> AgentHandle:
+        w = runner.spawn(role=role, scope=scope, parent=parent, layer=role, region=None)
+        w.start()
+        return w
+
+    def _finish(w, result):
+        w.end(result)
+        w.terminate("completed")
+
+    @tool
+    def kyb_screen_vendor(vendor_id: str) -> str:
+        """Run KYB (know-your-business) screening on a prospective vendor."""
+        w = _worker("vendor-lifecycle", f"kyb:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.kyb_screen_vendor(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def register_vendor(vendor_id: str) -> str:
+        """Register a screened vendor in the vendor master."""
+        w = _worker("vendor-lifecycle", f"register:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.register_vendor(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def refresh_vendor_compliance(vendor_id: str) -> str:
+        """Refresh ongoing compliance state for an existing vendor."""
+        w = _worker("vendor-lifecycle", f"refresh:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.refresh_vendor_compliance(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def get_contract_terms_for_vendor(vendor_id: str) -> str:
+        """Retrieve current contract terms for a vendor."""
+        w = _worker("vendor-lifecycle", f"contract:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.get_contract_terms(run_id, w.id, vendor_id))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def get_cash_position(region: str = "GLOBAL") -> str:
+        """Return cash position for a region or globally if region omitted."""
+        w = _worker("treasury", f"cash:{region}")
+        try:
+            return json.dumps(tool_fns.get_cash_position(run_id, w.id, region))
+        finally:
+            _finish(w, {"region": region})
+
+    @tool
+    def forecast_liquidity(horizon_days: int = 30) -> str:
+        """Forecast inflow/outflow over a horizon (7, 30, or 90 days)."""
+        w = _worker("treasury", f"forecast:{horizon_days}")
+        try:
+            return json.dumps(tool_fns.forecast_liquidity(run_id, w.id, int(horizon_days)))
+        finally:
+            _finish(w, {"horizon_days": horizon_days})
+
+    @tool
+    def place_fx_hedge(from_currency: str, to_currency: str, notional: float, tenor_days: int = 90) -> str:
+        """Place a forward FX hedge."""
+        w = _worker("treasury", f"hedge:{from_currency}->{to_currency}")
+        try:
+            return json.dumps(tool_fns.place_fx_hedge(
+                run_id, w.id, from_currency, to_currency, float(notional), int(tenor_days)))
+        finally:
+            _finish(w, {"from": from_currency, "to": to_currency})
+
+    @tool
+    def transfer_funds(from_region: str, to_region: str, amount_usd: float) -> str:
+        """Move cash between regional operating accounts."""
+        w = _worker("treasury", f"transfer:{from_region}->{to_region}")
+        try:
+            return json.dumps(tool_fns.transfer_funds(
+                run_id, w.id, from_region, to_region, float(amount_usd)))
+        finally:
+            _finish(w, {"from": from_region, "to": to_region})
+
+    @tool
+    def post_journal_entry(account_id: str, amount: float, currency: str, period: str) -> str:
+        """Post a journal entry to the GL for a given period."""
+        w = _worker("close", f"je:{account_id}")
+        try:
+            return json.dumps(tool_fns.post_journal_entry(
+                run_id, w.id, account_id, float(amount), currency, period))
+        finally:
+            _finish(w, {"account_id": account_id})
+
+    @tool
+    def reconcile_account(account_id: str) -> str:
+        """Reconcile a GL account against bank/sub-ledger balance."""
+        w = _worker("close", f"recon:{account_id}")
+        try:
+            return json.dumps(tool_fns.reconcile_account(run_id, w.id, account_id))
+        finally:
+            _finish(w, {"account_id": account_id})
+
+    @tool
+    def compute_accrual(category: str, period: str) -> str:
+        """Compute an accrual for a category in a period."""
+        w = _worker("close", f"accrual:{category}")
+        try:
+            return json.dumps(tool_fns.compute_accrual(run_id, w.id, category, period))
+        finally:
+            _finish(w, {"category": category})
+
+    @tool
+    def close_period(period: str) -> str:
+        """Close an accounting period (e.g. '2026-04')."""
+        w = _worker("close", f"close:{period}")
+        try:
+            return json.dumps(tool_fns.close_period(run_id, w.id, period))
+        finally:
+            _finish(w, {"period": period})
+
+    @tool
+    def aml_monitor_transaction(vendor_id: str, amount: float, currency: str) -> str:
+        """Run AML monitoring on a transaction."""
+        w = _worker("compliance", f"aml:{vendor_id}")
+        try:
+            return json.dumps(tool_fns.aml_monitor_transaction(
+                run_id, w.id, vendor_id, float(amount), currency))
+        finally:
+            _finish(w, {"vendor_id": vendor_id})
+
+    @tool
+    def sanctions_screen_batch(batch_id: str) -> str:
+        """Run a batch sanctions screen."""
+        w = _worker("compliance", f"sanctions:{batch_id}")
+        try:
+            return json.dumps(tool_fns.sanctions_screen_batch(run_id, w.id, batch_id))
+        finally:
+            _finish(w, {"batch_id": batch_id})
+
+    @tool
+    def prepare_regulatory_filing(filing_type: str, period: str) -> str:
+        """Prepare a regulatory filing draft."""
+        w = _worker("compliance", f"filing:{filing_type}")
+        try:
+            return json.dumps(tool_fns.prepare_regulatory_filing(
+                run_id, w.id, filing_type, period))
+        finally:
+            _finish(w, {"filing_type": filing_type})
+
+    @tool
+    def attest_control(control_id: str) -> str:
+        """Attest a SOX/internal control."""
+        w = _worker("compliance", f"control:{control_id}")
+        try:
+            return json.dumps(tool_fns.attest_control(run_id, w.id, control_id))
+        finally:
+            _finish(w, {"control_id": control_id})
+
+    @tool
+    def issue_customer_invoice(customer_id: str, amount: float, currency: str) -> str:
+        """Issue a customer invoice."""
+        w = _worker("receivables", f"ar-issue:{customer_id}")
+        try:
+            return json.dumps(tool_fns.issue_customer_invoice(
+                run_id, w.id, customer_id, float(amount), currency))
+        finally:
+            _finish(w, {"customer_id": customer_id})
+
+    @tool
+    def send_dunning_notice(customer_id: str, stage: int) -> str:
+        """Send a dunning notice (stage 1=reminder, 2=second notice, 3=collections)."""
+        w = _worker("receivables", f"ar-dun:{customer_id}")
+        try:
+            return json.dumps(tool_fns.send_dunning_notice(run_id, w.id, customer_id, int(stage)))
+        finally:
+            _finish(w, {"customer_id": customer_id})
+
+    @tool
+    def apply_customer_payment(invoice_id: str, amount: float) -> str:
+        """Apply a received customer payment to an open invoice."""
+        w = _worker("receivables", f"ar-apply:{invoice_id}")
+        try:
+            return json.dumps(tool_fns.apply_customer_payment(
+                run_id, w.id, invoice_id, float(amount)))
+        finally:
+            _finish(w, {"invoice_id": invoice_id})
+
+    @tool
+    def get_ar_aging(region: str = "GLOBAL") -> str:
+        """Return AR aging buckets for a region."""
+        w = _worker("receivables", f"ar-aging:{region}")
+        try:
+            return json.dumps(tool_fns.get_ar_aging(run_id, w.id, region))
+        finally:
+            _finish(w, {"region": region})
+
+    @tool
+    def record_audit(summary: str) -> str:
+        """Record a final audit entry for this workflow."""
+        w = _worker("audit", f"audit:workflow:{workflow_id}")
+        record = {"workflow_id": workflow_id, "summary": summary}
+        try:
+            bus.publish(ev.audit_record(run_id, w.id, record))
+            return json.dumps({"ok": True})
+        finally:
+            _finish(w, record)
+
+    return [
+        kyb_screen_vendor, register_vendor, refresh_vendor_compliance, get_contract_terms_for_vendor,
+        get_cash_position, forecast_liquidity, place_fx_hedge, transfer_funds,
+        post_journal_entry, reconcile_account, compute_accrual, close_period,
+        aml_monitor_transaction, sanctions_screen_batch, prepare_regulatory_filing, attest_control,
+        issue_customer_invoice, send_dunning_notice, apply_customer_payment, get_ar_aging,
+        record_audit,
+    ]
+
+
+# ---------- Workflow orchestrator ----------
+
+
+async def _run_workflow_orchestrator(run_id, runner, parent, memory_store, plans, files, board,
+                                     parent_summary, workflow_id, label, focus,
+                                     model_name, summarizer_model):
+    cfg = get_config()
+
+    wo = runner.spawn(
+        role="workflow-orchestrator", scope=f"workflow:{workflow_id}",
+        parent=parent, layer="workflow-orchestrator", region=None,
+    )
+    wo.start()
+
+    tools = [
+        *_build_agent_builtins(run_id, wo.id, plans, files, board, region=None),
+        *_build_workflow_domain_tools(run_id, runner, wo, workflow_id),
+    ]
+    tool_map = {t.name: t for t in tools}
+
+    llm = _make_llm(model_name, cfg.llm.temperature)
+    llm_with_tools = llm.bind_tools(tools)
+    summarizer = _make_llm(summarizer_model, 0.0)
+
+    system_prompt = cfg.prompts.workflowOrchestrator.format(
+        label=label, focus=focus or "complete the operational task end-to-end",
+    )
+    mem = memory_store.open(
+        agent_id=wo.id,
+        system=SystemMessage(content=system_prompt),
+        seed_summary=parent_summary,
+    )
+    mem.append(HumanMessage(content=(
+        f"Begin now. Your first turn MUST be a write_todos call "
+        f"listing your specific planned steps for focus={focus!r}."
+    )))
+    _emit_memory_snapshot(run_id, mem)
+
+    tool_calls = await _turn_loop(
+        run_id=run_id, agent=wo, model_name=model_name,
+        llm_with_tools=llm_with_tools, summarizer=summarizer,
+        mem=mem, tool_map=tool_map, max_turns=16,
+    )
+
+    result = {"workflow_id": workflow_id, "toolCalls": tool_calls}
+    wo.end(result)
+    wo.terminate("completed")
+    return result
+
+
 # ---------- Finance Control tools ----------
 
 
 def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
-                            summarizer_model, dispatched_regions: list[str]):
+                            summarizer_model, dispatched_regions: list[str],
+                            dispatched_workflows: list[str]):
+    cfg = get_config()
+    workflow_map = {w.id: w for w in cfg.workflows}
+
     @tool
     async def dispatch_region(region: str, focus: str = "") -> str:
         """Dispatch a Regional Orchestrator sub-agent to process one region.
@@ -436,7 +714,31 @@ def _build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board
         except Exception as exc:
             return json.dumps({"error": str(exc), "region": r, "toolCalls": 0})
 
-    return [dispatch_region]
+    @tool
+    async def dispatch_workflow(workflow_id: str, focus: str = "") -> str:
+        """Dispatch a Workflow Orchestrator sub-agent for a company-level
+        operation. workflow_id must be one of: vendorLifecycle, treasury, close,
+        compliance, receivables. `focus` is a short sentence describing the
+        intent."""
+        wf = workflow_map.get(workflow_id.strip())
+        if wf is None:
+            return json.dumps({"error": f"unknown workflow {workflow_id!r}"})
+        dispatched_workflows.append(wf.id)
+        fc_mem = memory_store.get(fc.id)
+        parent_summary = (fc_mem.seed_summary if fc_mem else "") or (
+            f"Finance Control dispatched workflow {wf.id} with focus: {focus or wf.focus}."
+        )
+        try:
+            result = await _run_workflow_orchestrator(
+                run_id, runner, fc, memory_store, plans, files, board,
+                parent_summary, wf.id, wf.label, focus or wf.focus,
+                model_name, summarizer_model,
+            )
+            return json.dumps(result)
+        except Exception as exc:
+            return json.dumps({"error": str(exc), "workflow_id": wf.id, "toolCalls": 0})
+
+    return [dispatch_region, dispatch_workflow]
 
 
 # ---------- Top-level entry ----------
@@ -464,10 +766,11 @@ async def run_swarm(run_id: str, prompt: str) -> None:
     fc.start()
 
     dispatched_regions: list[str] = []
+    dispatched_workflows: list[str] = []
     tools = [
         *_build_agent_builtins(run_id, fc.id, plans, files, board),
         *_build_fc_domain_tools(run_id, runner, fc, memory_store, plans, files, board, model_name,
-                                 summarizer_model, dispatched_regions),
+                                 summarizer_model, dispatched_regions, dispatched_workflows),
     ]
     tool_map = {t.name: t for t in tools}
     llm = _make_llm(model_name, cfg.llm.temperature)

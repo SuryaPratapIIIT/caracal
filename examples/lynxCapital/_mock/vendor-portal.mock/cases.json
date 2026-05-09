@@ -22,6 +22,14 @@
         "br-saopaulo":      {"vendor_id": "br-saopaulo",      "payment_terms_days": 30, "max_fee_pct": 1.0,  "approved_rails": ["PIX", "SWIFT"],         "contract_ref": "CTR-SAO-2025-001", "auto_renew": true},
         "default":          {"vendor_id": null,                "payment_terms_days": 30, "max_fee_pct": 1.0,  "approved_rails": ["ACH", "WIRE", "SWIFT"], "contract_ref": "CTR-DFLT-2025-001","auto_renew": true}
       }
+    },
+    "register_vendor": {
+      "match_key": "vendor_id",
+      "cases": {
+        "us-newco-tech": {"vendor_id": "us-newco-tech", "name": "NewCo Tech", "status": "registered", "registered_at": "2026-05-09T10:00:00Z", "vendor_record_id": "VR-NEWCO-001"},
+        "de-aurora-gmbh":{"vendor_id": "de-aurora-gmbh","name": "Aurora GmbH","status": "registered", "registered_at": "2026-05-09T10:01:00Z", "vendor_record_id": "VR-AURORA-001"},
+        "default":       {"vendor_id": null,            "name": "Vendor",     "status": "registered", "registered_at": "2026-05-09T10:00:00Z", "vendor_record_id": "VR-DFLT-001"}
+      }
     }
   }
 }

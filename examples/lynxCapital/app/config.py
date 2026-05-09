@@ -68,6 +68,13 @@ class ContentConfig(BaseModel):
 class PromptsConfig(BaseModel):
     financeControl: str
     regionalOrchestrator: str
+    workflowOrchestrator: str
+
+
+class WorkflowEntry(BaseModel):
+    id: str
+    label: str
+    focus: str
 
 
 class AppConfig(BaseModel):
@@ -78,6 +85,7 @@ class AppConfig(BaseModel):
     regions: list[RegionEntry]
     providers: list[ProviderEntry]
     agentLayers: list[AgentLayerEntry]
+    workflows: list[WorkflowEntry]
     scenario: ScenarioConfig
     content: ContentConfig
     prompts: PromptsConfig

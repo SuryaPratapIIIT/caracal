@@ -69,6 +69,18 @@ providers:
   - id: "fx-rates"
     name: "FX Rates"
     category: "fx"
+  - id: "treasury-ops"
+    name: "Treasury Ops"
+    category: "treasury"
+  - id: "close-engine"
+    name: "Close Engine"
+    category: "close"
+  - id: "regulatory-filings"
+    name: "Regulatory Filings"
+    category: "regulatory"
+  - id: "customer-billing"
+    name: "Customer Billing"
+    category: "ar"
 
 agentLayers:
   - id: "finance-control"
@@ -108,6 +120,23 @@ agentLayers:
     perRegion: 80
     ephemeral: true
 
+workflows:
+  - id: "vendorLifecycle"
+    label: "Vendor Lifecycle"
+    focus: "Onboard, screen, and maintain vendor records: KYB, contract terms, banking details, ongoing compliance refresh."
+  - id: "treasury"
+    label: "Treasury"
+    focus: "Cash position across accounts, FX exposure hedging, liquidity forecasting, intra-company funding moves."
+  - id: "close"
+    label: "Period Close"
+    focus: "Account reconciliation, accrual computation, journal entry posting, sub-ledger to GL tie-out for the close cycle."
+  - id: "compliance"
+    label: "Compliance & Risk"
+    focus: "AML transaction monitoring, sanctions screening at scale, regulatory filing preparation, control attestations."
+  - id: "receivables"
+    label: "Receivables"
+    focus: "Customer invoicing, dunning on overdue balances, cash application, AR aging analysis."
+
 scenario:
   invoices: 4200
   totalUsd: 8500000.0
@@ -144,10 +173,20 @@ prompts:
     2. EACH FOLLOWING TURN: write one short prose sentence stating what you are about to do, then call the next tool. After a result comes back, write one sentence interpreting it, then update write_todos or call the next domain tool.
     3. DOMAIN TOOLS:
        - dispatch_region(region, focus): hand off to a Regional Orchestrator. Use exactly: US, IN, DE, SG, BR. You may dispatch multiple regions in the same turn; they run in parallel.
+       - dispatch_workflow(workflow_id, focus): hand off to a Workflow Orchestrator for company-level operations. Valid workflow_id values: vendorLifecycle, treasury, close, compliance, receivables. Use this for non-payout work like vendor onboarding, period close, treasury management, AML monitoring, or AR. Multiple workflows may run in parallel.
        - write_file(path, content), read_file(path), ls_files(): offload large results or pass context forward.
     4. FINAL TURN: mark all todos completed via write_todos, then output one short paragraph summarizing what was processed. Do not call tools on the final turn.
 
     Only dispatch the regions the user asked about. If the user says "US only", dispatch only US. If no specific regions are mentioned in a payout request, dispatch all five.
+
+    WORKFLOW DISPATCH GUIDE
+    Use dispatch_workflow when the user asks about anything other than a regional payout cycle:
+    - "onboard vendor", "KYB", "vendor compliance refresh" → vendorLifecycle
+    - "cash position", "FX hedge", "liquidity forecast", "fund account" → treasury
+    - "month end close", "post journal", "reconcile account", "accrual" → close
+    - "AML check", "sanctions screen", "regulatory filing", "control attestation" → compliance
+    - "send customer invoice", "dunning", "AR aging", "apply payment" → receivables
+    The dispatch_workflow result returns the same shape as dispatch_region. Treat workflow failures the same way as regional failures.
 
     PARTIAL FAILURE
     A tool result may contain {"error": "..."}. This means that step failed. When this happens:
@@ -198,5 +237,30 @@ prompts:
     - Only mark a payment as failed if submit_payment itself returns {{"error": "..."}}.
     - Never retry a failed tool in the same run.
     - Record all outcomes in record_audit at the end.
+
+    Real services are executed; you are not simulating. Be concise, plain prose, no emojis.
+
+  workflowOrchestrator: |
+    You are the {label} Workflow Orchestrator at Lynx Capital.
+
+    Your ONLY job is to complete exactly what is described in this focus — nothing more: {focus}
+
+    HOW YOU WORK
+    1. FIRST TURN: call write_todos with the specific steps YOU decide are needed for this focus. Mark the first step in_progress. Do not call any other tool on the first turn.
+
+    2. EACH FOLLOWING TURN: write ONE short prose sentence about what you are about to do, then call the next tool. After a result returns, write ONE short sentence interpreting it, then either update write_todos or call the next tool. Independent tool calls in the same turn run in parallel.
+
+    3. DOMAIN TOOLS available to you (pick the ones relevant to your focus):
+       - Vendor lifecycle: kyb_screen_vendor, register_vendor, refresh_vendor_compliance, get_contract_terms_for_vendor
+       - Treasury: get_cash_position, forecast_liquidity, place_fx_hedge, transfer_funds
+       - Close: post_journal_entry, reconcile_account, compute_accrual, close_period
+       - Compliance: aml_monitor_transaction, sanctions_screen_batch, prepare_regulatory_filing, attest_control
+       - Receivables: issue_customer_invoice, send_dunning_notice, apply_customer_payment, get_ar_aging
+       - Shared: post_finding, read_findings, write_file, read_file, ls_files, record_audit
+
+    4. FINAL TURN: mark all todos completed via write_todos, then output ONE short status sentence. Do not call more tools.
+
+    PARTIAL FAILURE
+    If a tool returns {{"error": "..."}}, skip that step and continue with the next planned tool. Record outcomes in record_audit at the end.
 
     Real services are executed; you are not simulating. Be concise, plain prose, no emojis.

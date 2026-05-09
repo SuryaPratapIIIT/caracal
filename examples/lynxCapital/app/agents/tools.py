@@ -165,6 +165,111 @@ def get_payment_status(run_id: str, agent_id: str, vendor_id: str) -> dict[str, 
                    {"vendor_id": vendor_id})
 
 
+# -- vendor lifecycle tools --
+
+def kyb_screen_vendor(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "kyb_screen_vendor", "compliance-nexus", "kyb_screen_vendor",
+                   {"vendor_id": vendor_id})
+
+
+def register_vendor(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "register_vendor", "vendor-portal", "register_vendor",
+                   {"vendor_id": vendor_id})
+
+
+def refresh_vendor_compliance(run_id: str, agent_id: str, vendor_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "refresh_vendor_compliance", "compliance-nexus", "refresh_vendor_compliance",
+                   {"vendor_id": vendor_id})
+
+
+# -- treasury tools --
+
+def get_cash_position(run_id: str, agent_id: str, region: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "get_cash_position", "treasury-ops", "get_cash_position",
+                   {"region": region})
+
+
+def forecast_liquidity(run_id: str, agent_id: str, horizon_days: int) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "forecast_liquidity", "treasury-ops", "forecast_liquidity",
+                   {"horizon_days": horizon_days})
+
+
+def place_fx_hedge(run_id: str, agent_id: str, from_currency: str, to_currency: str, notional: float, tenor_days: int) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "place_fx_hedge", "treasury-ops", "place_fx_hedge",
+                   {"from_currency": from_currency, "to_currency": to_currency, "notional": notional, "tenor_days": tenor_days})
+
+
+def transfer_funds(run_id: str, agent_id: str, from_region: str, to_region: str, amount_usd: float) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "transfer_funds", "treasury-ops", "transfer_funds",
+                   {"from_region": from_region, "to_region": to_region, "amount_usd": amount_usd})
+
+
+# -- close tools --
+
+def post_journal_entry(run_id: str, agent_id: str, account_id: str, amount: float, currency: str, period: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "post_journal_entry", "close-engine", "post_journal_entry",
+                   {"account_id": account_id, "amount": amount, "currency": currency, "period": period})
+
+
+def reconcile_account(run_id: str, agent_id: str, account_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "reconcile_account", "close-engine", "reconcile_account",
+                   {"account_id": account_id})
+
+
+def compute_accrual(run_id: str, agent_id: str, category: str, period: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "compute_accrual", "close-engine", "compute_accrual",
+                   {"category": category, "period": period})
+
+
+def close_period(run_id: str, agent_id: str, period: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "close_period", "close-engine", "close_period",
+                   {"period": period})
+
+
+# -- compliance / regulatory tools --
+
+def aml_monitor_transaction(run_id: str, agent_id: str, vendor_id: str, amount: float, currency: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "aml_monitor_transaction", "regulatory-filings", "aml_monitor_transaction",
+                   {"vendor_id": vendor_id, "amount": amount, "currency": currency})
+
+
+def sanctions_screen_batch(run_id: str, agent_id: str, batch_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "sanctions_screen_batch", "regulatory-filings", "sanctions_screen_batch",
+                   {"batch_id": batch_id})
+
+
+def prepare_regulatory_filing(run_id: str, agent_id: str, filing_type: str, period: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "prepare_regulatory_filing", "regulatory-filings", "prepare_regulatory_filing",
+                   {"filing_type": filing_type, "period": period})
+
+
+def attest_control(run_id: str, agent_id: str, control_id: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "attest_control", "regulatory-filings", "attest_control",
+                   {"control_id": control_id})
+
+
+# -- receivables tools --
+
+def issue_customer_invoice(run_id: str, agent_id: str, customer_id: str, amount: float, currency: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "issue_customer_invoice", "customer-billing", "issue_customer_invoice",
+                   {"customer_id": customer_id, "amount": amount, "currency": currency})
+
+
+def send_dunning_notice(run_id: str, agent_id: str, customer_id: str, stage: int) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "send_dunning_notice", "customer-billing", "send_dunning_notice",
+                   {"customer_id": customer_id, "stage": stage})
+
+
+def apply_customer_payment(run_id: str, agent_id: str, invoice_id: str, amount: float) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "apply_customer_payment", "customer-billing", "apply_customer_payment",
+                   {"invoice_id": invoice_id, "amount": amount})
+
+
+def get_ar_aging(run_id: str, agent_id: str, region: str) -> dict[str, object]:
+    return _invoke(run_id, agent_id, "get_ar_aging", "customer-billing", "get_ar_aging",
+                   {"region": region})
+
+
 # Registry mapping tool name -> function for dispatch by the orchestration layer.
 TOOLS: dict[str, Callable] = {
     "extract_invoice": extract_invoice,
@@ -187,4 +292,23 @@ TOOLS: dict[str, Callable] = {
     "create_outbound_payment": create_outbound_payment,
     "get_contract_terms": get_contract_terms,
     "get_payment_status": get_payment_status,
+    "kyb_screen_vendor": kyb_screen_vendor,
+    "register_vendor": register_vendor,
+    "refresh_vendor_compliance": refresh_vendor_compliance,
+    "get_cash_position": get_cash_position,
+    "forecast_liquidity": forecast_liquidity,
+    "place_fx_hedge": place_fx_hedge,
+    "transfer_funds": transfer_funds,
+    "post_journal_entry": post_journal_entry,
+    "reconcile_account": reconcile_account,
+    "compute_accrual": compute_accrual,
+    "close_period": close_period,
+    "aml_monitor_transaction": aml_monitor_transaction,
+    "sanctions_screen_batch": sanctions_screen_batch,
+    "prepare_regulatory_filing": prepare_regulatory_filing,
+    "attest_control": attest_control,
+    "issue_customer_invoice": issue_customer_invoice,
+    "send_dunning_notice": send_dunning_notice,
+    "apply_customer_payment": apply_customer_payment,
+    "get_ar_aging": get_ar_aging,
 }

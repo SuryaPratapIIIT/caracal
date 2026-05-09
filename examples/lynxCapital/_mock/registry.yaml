@@ -9,3 +9,7 @@ ocr-vision: ocr-vision.mock/cases.json
 vendor-portal: vendor-portal.mock/cases.json
 tax-rules: tax-rules.mock/cases.json
 fx-rates: fx-rates.mock/cases.json
+treasury-ops: treasury-ops.mock/cases.json
+close-engine: close-engine.mock/cases.json
+regulatory-filings: regulatory-filings.mock/cases.json
+customer-billing: customer-billing.mock/cases.json
