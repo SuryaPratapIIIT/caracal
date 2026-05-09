@@ -37,12 +37,21 @@ func newJTITracker(redis *RedisClient, log zerolog.Logger) *jtiTracker {
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
-// caller may proceed (first use, or tracker disabled). Returns false on a
-// confirmed replay, after emitting a replay_detected audit event. Errors talking
-// to Redis fail open: the request proceeds and the error is logged, since STS
-// signature validation remains the primary access control.
-func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, requestID, resource, clientID, subjectFP string) bool {
+// caller may proceed (first use, ambient session token, or tracker disabled).
+// Returns false on a confirmed replay of a per-call token, after emitting a
+// replay_detected audit event. Errors talking to Redis fail open: the request
+// proceeds and the error is logged, since STS signature validation remains the
+// primary access control.
+//
+// Ambient session tokens are explicitly reusable — they are the long-lived bearer
+// the SDK presents to the gateway across many calls. Per-call tokens are minted
+// per request and must never be re-presented; replay protection only fires for
+// those.
+func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, clientID, subjectFP string) bool {
 	if t == nil || jti == "" {
+		return true
+	}
+	if use == "ambient" {
 		return true
 	}
 	ttl := time.Until(exp)
@@ -107,4 +116,25 @@ func jwtJTI(token string) string {
 		return ""
 	}
 	return claims.Jti
+}
+
+// jwtUse extracts the use claim ("ambient" or "per_call") without signature
+// verification. Used to gate replay tracking; the trust root is STS validation
+// when the bearer is exchanged.
+func jwtUse(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Use string `json:"use"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.Use
 }

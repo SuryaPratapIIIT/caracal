@@ -11,7 +11,7 @@
  */
 
 export { Caracal } from "./client.js";
-export type { CaracalConfig, RunOptions, DelegateOptions } from "./client.js";
+export type { CaracalConfig, RunOptions, DelegateOptions, ResourceBinding } from "./client.js";
 export type { CaracalContext } from "./context.js";
 export type { CoordinatorClient } from "./coordinator.js";
 export type { Envelope } from "./envelope.js";

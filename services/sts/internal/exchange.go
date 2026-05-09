@@ -62,7 +62,8 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ActorToken:          r.FormValue("actor_token"),
 		Resources:           r.Form["resource"],
 		Scope:               r.FormValue("scope"),
-		ClientID:            r.FormValue("client_id"),
+		ZoneID:              r.FormValue("zone_id"),
+		ApplicationID:       r.FormValue("application_id"),
 		ClientSecret:        r.FormValue("client_secret"),
 		ClientAssertion:     r.FormValue("client_assertion"),
 		ClientAssertionType: r.FormValue("client_assertion_type"),
@@ -162,7 +163,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	scopes := strings.Fields(req.Scope)
 	var grantedResources []string
-	grantedUpstreams := map[string]string{}
+	grantedDirectives := map[string]UpstreamDirective{}
+	grantedResourceRows := map[string]*Resource{}
 	var pendingChallenge *challengeState
 	stepUpType := ""
 
@@ -254,9 +256,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 		if result.Decision == "allow" {
 			grantedResources = append(grantedResources, resource.Identifier)
-			if resource.UpstreamURL != nil && *resource.UpstreamURL != "" {
-				grantedUpstreams[resource.Identifier] = *resource.UpstreamURL
-			}
+			grantedResourceRows[resource.Identifier] = resource
 		}
 	}
 
@@ -292,6 +292,18 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		sessionType = "user"
 	}
 
+	subType := SubTypeApplication
+	if sessionType == "user" {
+		subType = SubTypeUser
+	}
+	// Per-call by default. Tokens minted without a subject_token (first-mile
+	// bootstrap of an application principal) are ambient session tokens so they
+	// can be re-presented to STS for narrowing.
+	use := UsePerCall
+	if req.SubjectToken == "" {
+		use = UseAmbient
+	}
+
 	sess := &Session{
 		ID:              sessID,
 		ZoneID:          zoneID,
@@ -309,6 +321,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		ZoneID:         zoneID,
 		AppID:          app.ID,
 		SubjectID:      subjectID,
+		SubType:        subType,
+		Use:            use,
 		SID:            sessID,
 		Scopes:         req.Scope,
 		Resources:      grantedResources,
@@ -330,6 +344,35 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 	s.recordIssuedJTI(ctx, jti, app.ID, zoneID, requestID, ttl)
 
+	// Build per-resource upstream directives so the gateway can substitute the
+	// provider-native credential where the resource expects one.
+	for _, identifier := range grantedResources {
+		resource := grantedResourceRows[identifier]
+		directive := UpstreamDirective{
+			AuthMode:   UpstreamAuthCaracalJWT,
+			AuthHeader: "Authorization",
+			AuthScheme: "Bearer",
+		}
+		if resource.UpstreamURL != nil {
+			directive.URL = *resource.UpstreamURL
+		}
+		if resource.CredentialProviderID != nil {
+			userID, _ := subjectClaims["sub"].(string)
+			if userID != "" {
+				if grant, gerr := s.db.GetDelegatedGrant(ctx, zoneID, userID, resource.ID); gerr == nil && len(grant.AccessTokenCt) > 0 {
+					if at, openErr := openZEK(s.keys.zek, grant.AccessTokenCt); openErr == nil {
+						directive.AuthMode = UpstreamAuthProviderOAuth
+						directive.ProviderToken = string(at)
+						if grant.ExpiresAt != nil {
+							directive.ExpiresAt = grant.ExpiresAt.Unix()
+						}
+					}
+				}
+			}
+		}
+		grantedDirectives[identifier] = directive
+	}
+
 	return &TokenResponse{
 		AccessToken:     token,
 		TokenType:       "Bearer",
@@ -337,16 +380,16 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		Scope:           req.Scope,
 		IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
 		TargetResources: grantedResources,
-		TargetUpstreams: grantedUpstreams,
+		Upstreams:       grantedDirectives,
 	}, nil, http.StatusOK, nil
 }
 
 func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) (*Application, string, error) {
-	parts := strings.SplitN(req.ClientID, ":", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, "", fmt.Errorf("invalid client_id format")
+	zoneID := strings.TrimSpace(req.ZoneID)
+	appID := strings.TrimSpace(req.ApplicationID)
+	if zoneID == "" || appID == "" {
+		return nil, "", fmt.Errorf("missing zone_id or application_id")
 	}
-	zoneID, appID := parts[0], parts[1]
 	app, err := s.db.GetApplicationByID(ctx, appID, zoneID)
 	if err != nil {
 		return nil, "", err
@@ -365,14 +408,24 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 				_ = s.db.UpdateApplicationSecretHash(ctx, app.ID, app.ZoneID, newHash)
 			}
 		}
-	} else if derefStr(app.CredentialType) != "public" {
+	} else if derefStr(app.CredentialType) == "public" {
+		if strings.TrimSpace(req.ClientAssertion) == "" {
+			return nil, "", fmt.Errorf("public client requires client_assertion (DPoP/private_key_jwt) — secretless flows are not yet supported")
+		}
+		// TODO(security/H): verify DPoP proof (RFC 9449) or private_key_jwt assertion against
+		// a registered JWK for this application, and bind the issued token via cnf.jkt.
+		// Until then, public clients still require a verifiable client_assertion to
+		// prevent unauthenticated token minting (Issue H).
+	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
 	return app, zoneID, nil
 }
 
 // validateSubjectToken verifies an inbound STS-issued token: ES256 signature, this STS
-// as issuer, the token-exchange audience, and a matching zone_id claim.
+// as issuer, the issuer audience, a matching zone_id, and use=ambient. Per-call tokens
+// are deliberately rejected here (RFC 8693 §2.1 subject-confusion mitigation): a token
+// already narrowed to resources A,B must not bootstrap the minting of one for resource C.
 func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
 	pub, _, err := s.keys.getPublicKeyAndKid(ctx, zoneID)
 	if err != nil {
@@ -393,6 +446,9 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	}
 	if claimString(mc, "zone_id") != zoneID {
 		return nil, errors.New("token zone mismatch")
+	}
+	if claimString(mc, "use") != UseAmbient {
+		return nil, errors.New("subject_token must be an ambient session token")
 	}
 	return mc, nil
 }

@@ -90,6 +90,22 @@ type ChainHop struct {
 	DelegationEdgeID string `json:"edge,omitempty"`
 }
 
+// Token use classes. Ambient tokens represent a session and may be re-presented to STS
+// as subject_token; per-call tokens are narrowed to a specific resource set and must
+// never be reused as subject_token (RFC 8693 subject-confusion mitigation).
+const (
+	UseAmbient = "ambient"
+	UsePerCall = "per_call"
+)
+
+// Subject classes. Disambiguates whether sub identifies a human user or an
+// application principal so resource servers can apply different policies without
+// inferring class from claim shape.
+const (
+	SubTypeUser        = "user"
+	SubTypeApplication = "application"
+)
+
 // Claims is the full Caracal JWT claim set.
 type Claims struct {
 	jwt.RegisteredClaims
@@ -97,6 +113,8 @@ type Claims struct {
 	ClientID         string     `json:"client_id"`
 	Scope            string     `json:"scope,omitempty"`
 	SID              string     `json:"sid"`
+	Use              string     `json:"use"`
+	SubType          string     `json:"sub_type"`
 	Target           []string   `json:"target,omitempty"`
 	AgentSessionID   string     `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string     `json:"delegation_edge_id,omitempty"`
@@ -113,6 +131,8 @@ type IssueParams struct {
 	ZoneID           string
 	AppID            string
 	SubjectID        string
+	SubType          string
+	Use              string
 	SID              string
 	Scopes           string
 	Resources        []string
@@ -135,7 +155,23 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 	now := time.Now()
 	jti, _ := uuid.NewV7()
 	jtiStr := jti.String()
-	audience := append([]string{issuerURL}, params.Resources...)
+	use := params.Use
+	if use == "" {
+		use = UsePerCall
+	}
+	subType := params.SubType
+	if subType == "" {
+		subType = SubTypeApplication
+	}
+	// Audience is class-disjoint: ambient tokens carry only the issuer (so they
+	// can be re-presented as subject_token), per-call tokens carry only their
+	// target resources (so they cannot bootstrap further exchanges).
+	var audience []string
+	if use == UseAmbient {
+		audience = []string{issuerURL}
+	} else {
+		audience = append(audience, params.Resources...)
+	}
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuerURL,
@@ -149,6 +185,8 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		ClientID:         params.AppID,
 		Scope:            params.Scopes,
 		SID:              params.SID,
+		Use:              use,
+		SubType:          subType,
 		Target:           params.Resources,
 		AgentSessionID:   params.AgentSessionID,
 		DelegationEdgeID: params.DelegationEdgeID,

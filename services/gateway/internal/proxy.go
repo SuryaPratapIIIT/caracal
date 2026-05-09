@@ -94,7 +94,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: missing routing headers")
 		return
 	}
-	clientID, ok := p.bindings.Get(resource)
+	bind, ok := p.bindings.Get(resource)
 	if !ok {
 		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
 		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
@@ -108,19 +108,20 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger = logger.With().
-		Str("client_id", clientID).
+		Str("zone_id", bind.ZoneID).
+		Str("application_id", bind.ApplicationID).
 		Str("resource", resource).
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
-	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, requestID, resource, clientID, tokenFingerprint(bearer)) {
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ApplicationID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: jti replay")
 		return
 	}
 
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, clientID, resource, requestID)
+	res, status, cerr, internalErr := p.sts.Exchange(stsCtx, bearer, bind, resource, requestID)
 	cancel()
 	if cerr != nil {
 		writeErr(w, requestID, status, cerr.Code, cerr.Description)
@@ -132,21 +133,22 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstreamURL, err := p.guard.Check(res.Upstream)
+	upstreamURL, err := p.guard.Check(res.Upstream.URL)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadGateway, sharederr.Internal, "upstream not addressable")
-		logger.Error().Err(err).Str("upstream_raw", res.Upstream).Msg("upstream rejected by guard")
+		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
 		return
 	}
 	logger = logger.With().
 		Str("upstream_host", upstreamURL.Host).
+		Str("auth_mode", res.Upstream.AuthMode).
 		Dur("sts_latency_ms", res.Latency).
 		Logger()
 
 	body := http.MaxBytesReader(w, r.Body, p.maxBytes)
 	defer body.Close()
 
-	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, body, requestID)
+	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.Internal, "upstream request build failed")
 		logger.Error().Err(err).Msg("build upstream request")
@@ -172,9 +174,12 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildUpstreamRequest constructs the outbound request with safe headers, joined path,
-// merged query string, and a fresh STS-issued bearer token. The original Authorization
-// header is replaced; Caracal routing headers are stripped.
-func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, token string, body io.ReadCloser, requestID string) (*http.Request, error) {
+// merged query string, and the credential class STS chose for the resource. For
+// caracal_jwt mode the Caracal STS-issued bearer is forwarded; for provider_oauth /
+// provider_apikey the provider-native credential is substituted into the header the
+// upstream expects, and the Caracal JWT is exposed separately as X-Caracal-Identity so
+// Caracal-aware sidecars can still attribute the call.
+func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken string, directive upstreamDirective, body io.ReadCloser, requestID string) (*http.Request, error) {
 	joinedPath := joinURLPath(upstreamURL.Path, r.URL.Path)
 	mergedQuery, err := mergeQuery(upstreamURL.RawQuery, r.URL.RawQuery)
 	if err != nil {
@@ -196,7 +201,28 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, token string, b
 	req.Header.Del("X-Caracal-Client-ID")
 	req.Header.Del("X-Caracal-Resource")
 	req.Header.Del("X-Caracal-Upstream")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Del("X-Caracal-Identity")
+
+	authHeader := directive.AuthHeader
+	if authHeader == "" {
+		authHeader = "Authorization"
+	}
+	switch directive.AuthMode {
+	case "provider_oauth", "provider_apikey":
+		scheme := directive.AuthScheme
+		value := directive.ProviderToken
+		if scheme != "" {
+			value = scheme + " " + value
+		}
+		req.Header.Set(authHeader, value)
+		req.Header.Set("X-Caracal-Identity", caracalToken)
+	default:
+		scheme := directive.AuthScheme
+		if scheme == "" {
+			scheme = "Bearer"
+		}
+		req.Header.Set(authHeader, scheme+" "+caracalToken)
+	}
 	req.Header.Set("X-Request-Id", requestID)
 
 	// Replace, never append: the gateway is a trust boundary and any caller-supplied

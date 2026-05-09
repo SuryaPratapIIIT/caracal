@@ -24,7 +24,8 @@ type TokenExchangeRequest struct {
 	ActorToken          string
 	Resources           []string // one or more resource identifiers; repeated param supported
 	Scope               string
-	ClientID            string
+	ZoneID              string
+	ApplicationID       string
 	ClientSecret        string
 	ClientAssertion     string
 	ClientAssertionType string
@@ -36,15 +37,35 @@ type TokenExchangeRequest struct {
 	TTLSeconds          int
 }
 
+// UpstreamAuthMode classifies how the gateway must authenticate to a resource.
+const (
+	UpstreamAuthCaracalJWT     = "caracal_jwt"
+	UpstreamAuthProviderOAuth  = "provider_oauth"
+	UpstreamAuthProviderAPIKey = "provider_apikey"
+)
+
+// UpstreamDirective tells the gateway which URL to dial and which credential
+// shape the upstream expects. ProviderToken is the raw bearer the provider
+// itself accepts; for caracal_jwt mode it is empty and the gateway forwards the
+// Caracal JWT from TokenResponse.AccessToken instead.
+type UpstreamDirective struct {
+	URL           string `json:"url"`
+	AuthMode      string `json:"auth_mode"`
+	AuthHeader    string `json:"auth_header,omitempty"`
+	AuthScheme    string `json:"auth_scheme,omitempty"`
+	ProviderToken string `json:"provider_token,omitempty"`
+	ExpiresAt     int64  `json:"expires_at,omitempty"`
+}
+
 // TokenResponse is the JSON response body for a successful exchange.
 type TokenResponse struct {
-	AccessToken     string            `json:"access_token"`
-	TokenType       string            `json:"token_type"`
-	ExpiresIn       int               `json:"expires_in"`
-	Scope           string            `json:"scope,omitempty"`
-	IssuedTokenType string            `json:"issued_token_type"`
-	TargetResources []string          `json:"target_resources,omitempty"`
-	TargetUpstreams map[string]string `json:"target_upstreams,omitempty"`
+	AccessToken     string                       `json:"access_token"`
+	TokenType       string                       `json:"token_type"`
+	ExpiresIn       int                          `json:"expires_in"`
+	Scope           string                       `json:"scope,omitempty"`
+	IssuedTokenType string                       `json:"issued_token_type"`
+	TargetResources []string                     `json:"target_resources,omitempty"`
+	Upstreams       map[string]UpstreamDirective `json:"upstreams,omitempty"`
 }
 
 // OPAInput is the canonical input shape for every policy evaluation.

@@ -15,11 +15,18 @@ import {
 import { type CoordinatorClient } from "./coordinator.js";
 import { withAgent, withDelegation, type WithAgentOptions, type WithDelegationOptions } from "./primitives.js";
 
+export interface ResourceBinding {
+  resourceId: string;
+  upstreamPrefix: string;
+}
+
 export interface CaracalConfig {
   coordinator: CoordinatorClient;
   zoneId: string;
   applicationId: string;
   subjectToken: string;
+  gatewayUrl?: string;
+  resources?: ResourceBinding[];
   defaultKind?: "service" | "instance" | "ephemeral";
   defaultTtlSeconds?: number;
 }
@@ -49,6 +56,7 @@ export class Caracal {
     const zoneId = env.CARACAL_ZONE_ID;
     const applicationId = env.CARACAL_APPLICATION_ID;
     const subjectToken = env.CARACAL_SUBJECT_TOKEN;
+    const gatewayUrl = env.CARACAL_GATEWAY_URL;
     const missing = [
       ["CARACAL_COORDINATOR_URL", url],
       ["CARACAL_ZONE_ID", zoneId],
@@ -63,6 +71,8 @@ export class Caracal {
       zoneId: zoneId!,
       applicationId: applicationId!,
       subjectToken: subjectToken!,
+      gatewayUrl,
+      resources: parseResourceBindings(env.CARACAL_RESOURCES),
     });
   }
 
@@ -139,8 +149,53 @@ export class Caracal {
       if (!merged.has(k)) merged.set(k, v);
     }
     const fetchImpl = this.config.coordinator.fetchImpl ?? fetch;
+
+    const explicitResource = merged.get("X-Caracal-Resource") ?? undefined;
+    const rewritten = this.routeThroughGateway(input, explicitResource);
+    if (rewritten) {
+      merged.set("X-Caracal-Resource", rewritten.resourceId);
+      merged.set("Authorization", `Bearer ${env.subjectToken ?? this.config.subjectToken}`);
+      return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged });
+    }
     return fetchImpl(input as URL, { ...init, headers: merged });
   }) as typeof fetch;
+
+  private routeThroughGateway(
+    input: RequestInfo | URL,
+    explicitResource: string | undefined,
+  ): { url: string; resourceId: string } | null {
+    const gw = this.config.gatewayUrl;
+    if (!gw) return null;
+    const raw = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : (input as Request).url;
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return null;
+    }
+    if (sameOrigin(parsed, gw)) return null;
+
+    const binding = explicitResource
+      ? this.config.resources?.find((b) => b.resourceId === explicitResource)
+      : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix));
+    if (!binding && !explicitResource) return null;
+
+    const gateway = new URL(gw);
+    let suffix = parsed.pathname + parsed.search;
+    if (binding) {
+      const prefix = new URL(binding.upstreamPrefix);
+      if (parsed.pathname.startsWith(prefix.pathname) && prefix.pathname !== "/") {
+        suffix = parsed.pathname.slice(prefix.pathname.length) + parsed.search;
+        if (!suffix.startsWith("/")) suffix = "/" + suffix;
+      }
+    }
+    const target = gateway.toString().replace(/\/$/, "") + suffix;
+    return { url: target, resourceId: binding?.resourceId ?? explicitResource! };
+  }
 
   context(): CaracalContext {
     const ctx = tryCurrent();
@@ -163,4 +218,43 @@ export class Caracal {
       }).catch(next);
     };
   }
+}
+
+function sameOrigin(a: URL, b: string): boolean {
+  try {
+    const o = new URL(b);
+    return a.protocol === o.protocol && a.host === o.host;
+  } catch {
+    return false;
+  }
+}
+
+function urlMatchesPrefix(target: URL, prefix: string): boolean {
+  let p: URL;
+  try {
+    p = new URL(prefix);
+  } catch {
+    return false;
+  }
+  if (p.protocol !== target.protocol) return false;
+  if (p.host !== target.host) return false;
+  if (p.pathname === "/" || p.pathname === "") return true;
+  return target.pathname === p.pathname || target.pathname.startsWith(p.pathname.endsWith("/") ? p.pathname : p.pathname + "/");
+}
+
+function parseResourceBindings(raw: string | undefined): ResourceBinding[] | undefined {
+  if (!raw) return undefined;
+  const out: ResourceBinding[] = [];
+  for (const entry of raw.split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx <= 0) continue;
+    const resourceId = trimmed.slice(0, idx).trim();
+    const upstreamPrefix = trimmed.slice(idx + 1).trim();
+    if (resourceId && upstreamPrefix) {
+      out.push({ resourceId, upstreamPrefix });
+    }
+  }
+  return out.length ? out : undefined;
 }

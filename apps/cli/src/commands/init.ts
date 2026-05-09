@@ -11,7 +11,7 @@ import { discoverAdminToken } from '@caracalai/core'
 interface BootstrapResponse {
   zone_id: string
   app_id: string
-  app_client_id: string
+  application_id: string
   app_client_secret: string | null
   resource: string
   scope: string
@@ -105,11 +105,11 @@ function parseFlags(argv: string[]): InitOptions {
   return { apiUrl, zoneUrl, configPath, adminToken: token, force }
 }
 
-function renderToml(opts: { zoneUrl: string; zoneId: string; clientId: string; clientSecret: string; resource: string }): string {
+function renderToml(opts: { zoneUrl: string; zoneId: string; applicationId: string; clientSecret: string; resource: string }): string {
   return [
     `zone_url = "${opts.zoneUrl}"`,
     `zone_id = "${opts.zoneId}"`,
-    `app_client_id = "${opts.clientId}"`,
+    `application_id = "${opts.applicationId}"`,
     `app_client_secret = "${opts.clientSecret}"`,
     '',
     '[[credentials]]',
@@ -152,10 +152,10 @@ export async function initCommand(argv: string[]): Promise<void> {
 
   const envPath = envFilePath()
   if (envPath) {
-    const binding = `${data.resource}=${data.app_client_id}`
-    if (upsertEnvVar(envPath, 'RESOURCE_CLIENT_BINDINGS', binding)) {
+    const binding = `${data.resource}=${data.application_id}`
+    if (upsertEnvVar(envPath, 'RESOURCE_APPLICATION_BINDINGS', binding)) {
       process.stdout.write(
-        `Updated RESOURCE_CLIENT_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
+        `Updated RESOURCE_APPLICATION_BINDINGS in ${envPath}; restart the gateway with \`caracal up\` to apply.\n`,
       )
     }
   }
@@ -176,7 +176,7 @@ export async function initCommand(argv: string[]): Promise<void> {
   const toml = renderToml({
     zoneUrl: opts.zoneUrl,
     zoneId: data.zone_id,
-    clientId: data.app_client_id,
+    applicationId: data.application_id,
     clientSecret: data.app_client_secret,
     resource: data.resource,
   })

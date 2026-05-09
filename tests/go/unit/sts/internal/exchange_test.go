@@ -303,9 +303,11 @@ result := {"decision": "partial", "evaluation_status": "partial", "determining_p
 	}
 
 	form := url.Values{
-		"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"client_id":  {"zone1:app1"},
-		"resource":   {"https://api.example.com"},
+		"grant_type":        {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"zone_id":           {"zone1"},
+		"application_id":    {"app1"},
+		"client_assertion":  {"test-public-client-assertion"},
+		"resource":          {"https://api.example.com"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token",
 		strings.NewReader(form.Encode()))
@@ -561,7 +563,9 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, code, apiErr := srv.exchange(context.Background(), TokenExchangeRequest{
-		ClientID:         "zone1:app1",
+		ZoneID:           "zone1",
+		ApplicationID:    "app1",
+		ClientAssertion:  "test-public-client-assertion",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
 		AgentSessionID:   source.ID,
