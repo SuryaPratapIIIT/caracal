@@ -193,7 +193,8 @@ export class Caracal {
         if (!suffix.startsWith("/")) suffix = "/" + suffix;
       }
     }
-    const target = gateway.toString().replace(/\/$/, "") + suffix;
+    const base = gateway.origin + gateway.pathname.replace(/\/$/, "");
+    const target = base + suffix;
     return { url: target, resourceId: binding?.resourceId ?? explicitResource! };
   }
 

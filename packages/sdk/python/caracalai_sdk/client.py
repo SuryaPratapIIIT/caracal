@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Mapping
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -30,13 +31,39 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class ResourceBinding:
+    resource_id: str
+    upstream_prefix: str
+
+
+@dataclass
 class CaracalConfig:
     coordinator: CoordinatorClient
     zone_id: str
     application_id: str
     subject_token: str
+    gateway_url: str | None = None
+    resources: list[ResourceBinding] = field(default_factory=list)
     default_kind: AgentKind = "instance"
     default_ttl_seconds: int | None = None
+
+
+def _parse_resource_bindings(raw: str | None) -> list[ResourceBinding]:
+    if not raw:
+        return []
+    out: list[ResourceBinding] = []
+    for entry in raw.split(","):
+        trimmed = entry.strip()
+        if not trimmed:
+            continue
+        idx = trimmed.find("=")
+        if idx <= 0:
+            continue
+        rid = trimmed[:idx].strip()
+        prefix = trimmed[idx + 1 :].strip()
+        if rid and prefix:
+            out.append(ResourceBinding(resource_id=rid, upstream_prefix=prefix))
+    return out
 
 
 class Caracal:
@@ -61,6 +88,8 @@ class Caracal:
                 zone_id=required["CARACAL_ZONE_ID"],
                 application_id=required["CARACAL_APPLICATION_ID"],
                 subject_token=required["CARACAL_SUBJECT_TOKEN"],
+                gateway_url=e.get("CARACAL_GATEWAY_URL") or None,
+                resources=_parse_resource_bindings(e.get("CARACAL_RESOURCES")),
             )
         )
 
@@ -163,16 +192,83 @@ class Caracal:
         return factory
 
     def httpx_client(self, **kwargs: Any) -> httpx.AsyncClient:
-        """Returns an httpx.AsyncClient that auto-injects the envelope on every request."""
+        """Returns an httpx.AsyncClient that auto-injects the envelope on every request
+        and rewrites resource-bound calls through the configured Caracal gateway."""
         outer = self
 
         class _CaracalAuth(httpx.Auth):
             requires_request_body = False
 
             def auth_flow(self, request: httpx.Request):
+                rewritten = outer._route_through_gateway(
+                    request.url, request.headers.get("X-Caracal-Resource")
+                )
+                if rewritten is not None:
+                    request.url = httpx.URL(rewritten[0])
+                    request.headers["host"] = request.url.host
+                    request.headers["X-Caracal-Resource"] = rewritten[1]
+                    request.headers["Authorization"] = f"Bearer {outer.config.subject_token}"
                 for k, v in outer.headers().items():
                     if k not in request.headers:
                         request.headers[k] = v
                 yield request
 
         return httpx.AsyncClient(auth=_CaracalAuth(), **kwargs)
+
+    def _route_through_gateway(
+        self,
+        target: httpx.URL | str,
+        explicit_resource: str | None,
+    ) -> tuple[str, str] | None:
+        gw = self.config.gateway_url
+        if not gw:
+            return None
+        target_url = str(target)
+        try:
+            parsed = urlparse(target_url)
+        except ValueError:
+            return None
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        gw_parsed = urlparse(gw)
+        if parsed.scheme == gw_parsed.scheme and parsed.netloc == gw_parsed.netloc:
+            return None
+        binding: ResourceBinding | None = None
+        if explicit_resource:
+            for b in self.config.resources:
+                if b.resource_id == explicit_resource:
+                    binding = b
+                    break
+        else:
+            for b in self.config.resources:
+                if _url_matches_prefix(parsed, b.upstream_prefix):
+                    binding = b
+                    break
+            if binding is None:
+                return None
+        suffix = parsed.path or "/"
+        if binding is not None:
+            prefix = urlparse(binding.upstream_prefix)
+            if prefix.path and prefix.path != "/" and parsed.path.startswith(prefix.path):
+                trimmed = parsed.path[len(prefix.path) :] or "/"
+                if not trimmed.startswith("/"):
+                    trimmed = "/" + trimmed
+                suffix = trimmed
+        base_path = gw_parsed.path.rstrip("/")
+        rewritten = urlunparse(
+            (gw_parsed.scheme, gw_parsed.netloc, base_path + suffix, "", parsed.query, "")
+        )
+        rid = binding.resource_id if binding is not None else (explicit_resource or "")
+        return rewritten, rid
+
+
+def _url_matches_prefix(target, prefix: str) -> bool:
+    p = urlparse(prefix)
+    if p.scheme != target.scheme or p.netloc != target.netloc:
+        return False
+    if not p.path or p.path == "/":
+        return True
+    if target.path == p.path:
+        return True
+    pp = p.path if p.path.endswith("/") else p.path + "/"
+    return target.path.startswith(pp)

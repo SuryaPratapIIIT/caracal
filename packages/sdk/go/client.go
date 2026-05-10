@@ -146,12 +146,12 @@ type DelegateOptions struct {
 // Delegate creates a delegation edge from the current session and runs fn under it.
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions, fn func(context.Context) error) error {
 	return WithDelegation(ctx, WithDelegationOptions{
-		Coordinator:        c.Coordinator,
-		ToAgentSessionID:   opts.To,
-		ToApplicationID:    opts.ToApplicationID,
-		Scopes:             opts.Scopes,
-		Constraints:        opts.Constraints,
-		TTLSeconds:         opts.TTLSeconds,
+		Coordinator:      c.Coordinator,
+		ToAgentSessionID: opts.To,
+		ToApplicationID:  opts.ToApplicationID,
+		Scopes:           opts.Scopes,
+		Constraints:      opts.Constraints,
+		TTLSeconds:       opts.TTLSeconds,
 	}, fn)
 }
 
