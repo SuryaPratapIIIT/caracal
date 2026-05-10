@@ -5,11 +5,13 @@
 
 import { readFileSync } from 'node:fs'
 import { AdminClient, AdminApiError } from '@caracalai/admin'
-import { discoverAdminToken } from '@caracalai/core'
+import {
+  DEFAULT_API_URL,
+  DEFAULT_COORDINATOR_URL,
+  discoverAdminToken,
+  resolveServiceUrl,
+} from '@caracalai/core'
 import type { CliConfig } from '../config.ts'
-
-const DEFAULT_API_URL = 'http://localhost:3000'
-const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 
 export { discoverAdminToken }
 
@@ -34,20 +36,6 @@ export function buildAdminClient(cfg?: CliConfig): AdminContext {
     client: new AdminClient({ apiUrl, coordinatorUrl, adminToken, coordinatorToken }),
     zoneId,
   }
-}
-
-// resolveServiceUrl falls back to the dev default only in development. In any other
-// environment, it requires the env var to be set so a misconfigured production CLI
-// fails loudly instead of silently hammering localhost.
-function resolveServiceUrl(envKey: string, devDefault: string): string {
-  const v = process.env[envKey]
-  if (v) return v
-  const env = process.env.NODE_ENV ?? 'development'
-  if (env !== 'development') {
-    process.stderr.write(`Error: ${envKey} is required when NODE_ENV=${env}\n`)
-    process.exit(1)
-  }
-  return devDefault
 }
 
 export interface ParsedArgs {

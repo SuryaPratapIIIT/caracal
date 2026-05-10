@@ -4,9 +4,8 @@
 // Caracal CLI entry point — stack, runtime, and admin subcommands.
 
 import { parse } from 'smol-toml'
-import { existsSync, readFileSync } from 'fs'
-import { homedir } from 'node:os'
-import { join } from 'path'
+import { readFileSync } from 'fs'
+import { resolveCliConfigPath } from '@caracalai/core'
 import { runCommand } from './commands/run.ts'
 import { credentialReadCommand } from './commands/credential.ts'
 import { initCommand } from './commands/init.ts'
@@ -72,24 +71,8 @@ function usage(out: NodeJS.WriteStream = process.stderr): void {
   )
 }
 
-function resolveConfigPath(): string | undefined {
-  const candidates: string[] = []
-  if (process.env.CARACAL_CONFIG) candidates.push(process.env.CARACAL_CONFIG)
-  for (const dir of [process.cwd(), process.env.PWD, process.env.INIT_CWD]) {
-    if (dir) candidates.push(join(dir, 'caracal.toml'))
-  }
-  const xdg = process.env.XDG_CONFIG_HOME
-  const xdgBase = xdg && xdg.length > 0 ? xdg : join(homedir(), '.config')
-  candidates.push(join(xdgBase, 'caracal', 'caracal.toml'))
-
-  for (const path of candidates) {
-    if (existsSync(path)) return path
-  }
-  return undefined
-}
-
 function loadConfig(required: boolean): CliConfig | undefined {
-  const path = resolveConfigPath()
+  const path = resolveCliConfigPath()
   if (!path) {
     if (!required) return undefined
     process.stderr.write('Error: caracal.toml not found; run `caracal init` to provision the local zone.\n')
