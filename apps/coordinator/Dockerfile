@@ -46,4 +46,6 @@ COPY --from=node-builder /out ./
 COPY apps/coordinator/start.sh /start.sh
 RUN chmod +x /start.sh && chown -R node:node /app /relay /start.sh
 USER node
+EXPOSE 4000
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-4000}/health" || exit 1
 ENTRYPOINT ["/start.sh"]
