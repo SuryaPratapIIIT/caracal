@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caracalai-mcp-fastmcp"
+version = "0.1.0"
+description = "FastMCP adaptor for Caracal MCP authentication"
+requires-python = ">=3.11"
+dependencies = [
+  "caracalai-transport-mcp",
+  "caracalai-revocation",
+]
+
+[project.optional-dependencies]
+fastmcp = ["fastmcp>=0.4.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["caracalai_mcp_fastmcp"]
