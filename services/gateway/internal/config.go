@@ -90,6 +90,15 @@ func (c Config) validate() error {
 	if c.Env == "production" && (c.InsecureHTTP || c.InsecureSTS) {
 		return fmt.Errorf("INSECURE_HTTP and INSECURE_STS are forbidden when CARACAL_ENV=production")
 	}
+	if c.Env == "production" && c.RedisURL == "" {
+		return fmt.Errorf("REDIS_URL is required when CARACAL_ENV=production")
+	}
+	if c.Env == "production" && c.JTIFailOpen {
+		return fmt.Errorf("JTI_FAIL_OPEN is forbidden when CARACAL_ENV=production")
+	}
+	if c.Env == "production" && c.AllowPrivateUpstreams && len(c.UpstreamHostAllowlist) == 0 {
+		return fmt.Errorf("UPSTREAM_HOST_ALLOWLIST is required when ALLOW_PRIVATE_UPSTREAMS=true in production")
+	}
 	u, err := url.Parse(c.STSURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("STS_URL must be an absolute URL")
