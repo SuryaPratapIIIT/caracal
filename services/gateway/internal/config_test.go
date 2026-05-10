@@ -25,14 +25,14 @@ func TestConfigValidateAcceptsInsecureSTSWhenAcked(t *testing.T) {
 }
 
 func TestConfigValidateRequiresTLSAck(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1}
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", MaxRequestBytes: 1, RedisURL: "redis://redis"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "INSECURE_HTTP") {
 		t.Errorf("expected TLS ack requirement, got %v", err)
 	}
 }
 
 func TestConfigValidateTLSPair(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "cert", MaxRequestBytes: 1}
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "cert", MaxRequestBytes: 1, RedisURL: "redis://redis"}
 	if err := c.validate(); err == nil {
 		t.Error("partial TLS config should fail")
 	}
@@ -60,9 +60,30 @@ func TestConfigValidateRejectsNonStandardPort(t *testing.T) {
 }
 
 func TestConfigValidateProductionRejectsInsecure(t *testing.T) {
-	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", InsecureHTTP: true, MaxRequestBytes: 1}
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", InsecureHTTP: true, MaxRequestBytes: 1, RedisURL: "redis://redis"}
 	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "forbidden") {
 		t.Errorf("expected production reject, got %v", err)
+	}
+}
+
+func TestConfigValidateProductionRequiresRedis(t *testing.T) {
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
+		t.Errorf("expected Redis requirement, got %v", err)
+	}
+}
+
+func TestConfigValidateProductionRejectsJTIFailOpen(t *testing.T) {
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1, RedisURL: "redis://redis", JTIFailOpen: true}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "JTI_FAIL_OPEN") {
+		t.Errorf("expected JTI fail-open rejection, got %v", err)
+	}
+}
+
+func TestConfigValidateProductionPrivateUpstreamsRequireAllowlist(t *testing.T) {
+	c := Config{Env: "production", Port: "8081", STSURL: "https://sts", TLSCertFile: "c", TLSKeyFile: "k", MaxRequestBytes: 1, RedisURL: "redis://redis", AllowPrivateUpstreams: true}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "UPSTREAM_HOST_ALLOWLIST") {
+		t.Errorf("expected private upstream allowlist requirement, got %v", err)
 	}
 }
 

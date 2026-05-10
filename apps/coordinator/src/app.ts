@@ -15,6 +15,7 @@ import { db } from './db.js'
 import { redis } from './redis.js'
 import { verifyBearer } from './auth.js'
 import { ttlSweeperStats } from './jobs/ttl-sweeper.js'
+import { retentionCleanerStats } from './jobs/retention-cleaner.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -42,6 +43,7 @@ export async function buildApp() {
       invocations: Object.fromEntries(invocations.map((row: { status: string; n: string }) => [row.status, Number(row.n)])),
       outbox: Object.fromEntries(outbox.map((row: { status: string; n: string }) => [row.status, Number(row.n)])),
       ttl_sweeper: { ...ttlSweeperStats },
+      retention_cleaner: { ...retentionCleanerStats },
     }
   })
   await app.register(agentsRoutes)

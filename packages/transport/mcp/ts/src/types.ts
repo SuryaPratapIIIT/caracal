@@ -15,6 +15,8 @@ export type AuthErrorCode =
   | 'session_revoked'
   | 'agent_required'
   | 'delegation_required'
+  | 'chain_mismatch'
+  | 'hop_count_exceeded'
 
 export interface AuthError {
   code: AuthErrorCode

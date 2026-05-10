@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm --dir ../../../transport/mcp/ts build && vitest run --root ../../../.. tests/typescript/unit/sdk/mcp-fastmcp",
     "prepublishOnly": "tsc"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
   }
 }
