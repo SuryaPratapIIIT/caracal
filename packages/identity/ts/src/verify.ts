@@ -85,6 +85,7 @@ export async function verify(token: string, config: JwtConfig): Promise<Claims> 
     ;({ payload } = await jwtVerify(token, keySet, {
       issuer: config.issuer,
       audience: config.audience,
+      algorithms: ['ES256'],
     }))
   } catch {
     throw new TokenInvalidError()

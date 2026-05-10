@@ -4,17 +4,8 @@
 // A2A call helper: exchanges subject authority for a target agent token.
 
 import { OAuthClient } from '@caracalai/oauth'
-import type { A2AOptions, A2ARequest, A2AResponse } from './types.js'
-
-type RuntimeFetch = (url: string, init: {
-  method: string
-  headers: Record<string, string>
-  body: string
-}) => Promise<{
-  ok: boolean
-  status: number
-  json: () => Promise<unknown>
-}>
+import { toEnvelope, toHeaders, tryCurrent, type Envelope } from '@caracalai/sdk/advanced'
+import type { A2AOptions, A2ARequest, A2AResponse, FetchLike } from './types.js'
 
 export async function a2aCall(
   req: A2ARequest,
@@ -23,25 +14,42 @@ export async function a2aCall(
   applicationId: string,
   opts: A2AOptions,
 ): Promise<A2AResponse> {
-  const token = await new OAuthClient(opts.stsUrl, zoneId, applicationId).exchange(subjectToken, req.resource ?? req.agentUrl, {
-    clientSecret: opts.clientSecret,
-    clientAssertion: opts.clientAssertion,
-    clientAssertionType: opts.clientAssertionType,
-    scopes: req.scopes,
-    sessionId: req.sessionId,
-    agentSessionId: req.agentSessionId,
-    delegationEdgeId: req.delegationEdgeId,
-    ttlSeconds: opts.ttlSeconds,
-  })
-  const runtimeFetch = (globalThis as unknown as { fetch: RuntimeFetch }).fetch
-  const res = await runtimeFetch(`${req.agentUrl}/a2a`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token.accessToken}`,
-      'X-Caracal-Zone-Id': zoneId,
-      'X-Caracal-Application-Id': applicationId,
+  const token = await new OAuthClient(opts.stsUrl, zoneId, applicationId).exchange(
+    subjectToken,
+    req.resource ?? req.agentUrl,
+    {
+      clientSecret: opts.clientSecret,
+      clientAssertion: opts.clientAssertion,
+      clientAssertionType: opts.clientAssertionType,
+      scopes: req.scopes,
+      sessionId: req.sessionId,
+      agentSessionId: req.agentSessionId,
+      delegationEdgeId: req.delegationEdgeId,
+      ttlSeconds: opts.ttlSeconds,
     },
+  )
+
+  const ctx = tryCurrent()
+  const envelope: Envelope = ctx
+    ? toEnvelope(ctx)
+    : {
+        subjectToken: token.accessToken,
+        agentSessionId: req.agentSessionId,
+        delegationEdgeId: req.delegationEdgeId,
+        hop: 0,
+      }
+  const envHeaders = toHeaders(envelope)
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token.accessToken}`,
+    ...envHeaders,
+  }
+
+  const fetchImpl = opts.fetchImpl ?? (globalThis as unknown as { fetch: FetchLike }).fetch
+  const res = await fetchImpl(`${req.agentUrl}/a2a`, {
+    method: 'POST',
+    headers,
     body: JSON.stringify({
       method: req.method,
       params: req.params,
@@ -63,5 +71,5 @@ export async function a2aCall(
     throw new Error(`A2A call failed: ${res.status}`)
   }
 
-  return res.json() as Promise<A2AResponse>
+  return (await res.json()) as A2AResponse
 }

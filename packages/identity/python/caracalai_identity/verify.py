@@ -74,9 +74,23 @@ async def verify_token(
 ) -> dict[str, Any]:
     keys = await _cache.get_keys(issuer)
 
+    try:
+        header = jwt.get_unverified_header(token)
+    except Exception as e:
+        raise TokenInvalidError(f"Token validation failed: {e}") from e
+
+    token_kid = header.get("kid")
+    candidates: list[dict[str, Any]]
+    if token_kid:
+        candidates = [k for k in keys if k.get("kid") == token_kid]
+        if not candidates:
+            raise TokenInvalidError(f"Token validation failed: unknown kid {token_kid}")
+    else:
+        candidates = list(keys)
+
     decoded: dict[str, Any] | None = None
     last_err: Exception | None = None
-    for key in keys:
+    for key in candidates:
         try:
             decoded = jwt.decode(
                 token,
