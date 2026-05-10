@@ -4,7 +4,7 @@
 // V1 façade routes that expose begin/end/exchange/verify over flat HTTP for
 // language-neutral integration without an SDK.
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { verify, type JwtConfig } from '@caracalai/identity'
 import { cfg } from '../config.js'
@@ -21,6 +21,7 @@ const BeginBody = z.object({
 const EndBody = z.object({
   zone_id: z.string().min(1),
   session_id: z.string().min(1),
+  reason: z.string().min(1).max(256).optional(),
 })
 
 const ExchangeBody = z.object({
@@ -48,6 +49,12 @@ function bearerOf(req: { headers: { authorization?: string } }): string {
   return req.headers.authorization ?? ''
 }
 
+function clientIp(req: FastifyRequest): string {
+  return (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim()
+    || req.ip
+    || 'unknown'
+}
+
 export const v1Routes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/v1/begin', async (req, reply) => {
     const body = BeginBody.parse(req.body)
@@ -68,9 +75,10 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post('/v1/end', async (req, reply) => {
     const body = EndBody.parse(req.body)
+    const reasonQs = body.reason ? `?reason=${encodeURIComponent(body.reason)}` : ''
     const res = await fastify.inject({
       method: 'DELETE',
-      url: `/zones/${encodeURIComponent(body.zone_id)}/agents/${encodeURIComponent(body.session_id)}`,
+      url: `/zones/${encodeURIComponent(body.zone_id)}/agents/${encodeURIComponent(body.session_id)}${reasonQs}`,
       headers: { authorization: bearerOf(req) },
     })
     if (res.statusCode === 204) return reply.code(204).send()
@@ -90,6 +98,15 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.post('/v1/verify', async (req, reply) => {
+    if (cfg.verifyRateLimitPerMin > 0) {
+      const minute = Math.floor(Date.now() / 60_000)
+      const key = `coordinator:verify_rl:${clientIp(req)}:${minute}`
+      const count = await fastify.redis.incr(key)
+      if (count === 1) await fastify.redis.expire(key, 90)
+      if (count > cfg.verifyRateLimitPerMin) {
+        return reply.code(429).send({ valid: false, error: 'rate_limited' })
+      }
+    }
     const body = VerifyBody.parse(req.body ?? {})
     const raw = body.token
       ?? (body.authorization?.startsWith('Bearer ')

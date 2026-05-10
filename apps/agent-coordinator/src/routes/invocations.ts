@@ -7,6 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { enqueue, Topics, type Queryable } from '../outbox.js'
+import { ownsApplication, requireScope } from '../auth.js'
 
 const RetryPolicy = z.object({
   max_attempts: z.number().int().min(1).max(10).default(3),
@@ -26,7 +27,7 @@ const InvocationBody = z.object({
 })
 
 const CompleteBody = z.object({
-  status: z.enum(['succeeded', 'failed', 'timed_out']),
+  status: z.enum(['succeeded', 'failed']),
   error: z.record(z.unknown()).nullable().default(null),
   metadata: z.record(z.unknown()).default({}),
 })
@@ -51,17 +52,28 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      const { rows: services } = await client.query(
-        `SELECT id FROM agent_services WHERE id = $1 AND zone_id = $2 FOR SHARE`,
+      const { rows: services } = await client.query<{ application_id: string }>(
+        `SELECT application_id FROM agent_services
+         WHERE id = $1 AND zone_id = $2 FOR SHARE`,
         [body.service_id, zoneId],
       )
       if (!services[0]) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_service_not_found' })
       }
-      if (await missingInvocationSession(client, zoneId, body.source_session_id, body.target_session_id)) {
+      const sessions = await loadInvocationSessions(
+        client, zoneId, body.source_session_id, body.target_session_id,
+      )
+      if (sessions === null) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'agent_session_not_found' })
+      }
+      const sourceApp = sessions.source?.application_id ?? services[0].application_id
+      if (!ownsApplication(req, sourceApp)
+        && !requireScope(req, `coordinator.invoke_from:${sourceApp}`)
+        && !requireScope(req, 'coordinator.admin')) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'invoker_ownership_required' })
       }
 
       const id = uuidv7()
@@ -122,6 +134,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
       const { rows } = await client.query(
         `UPDATE agent_invocations
          SET status = 'running', attempts = attempts + 1, started_at = now(),
+             completed_at = NULL, error_json = NULL,
              deadline_at = now() + (timeout_ms * interval '1 millisecond'), updated_at = now()
          WHERE zone_id = $1 AND id = $2 AND status IN ('pending', 'failed') AND attempts < max_attempts
          ${INVOCATION_RETURNING}`,
@@ -154,13 +167,13 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
              cancel_requested_at = now(),
              metadata_json = metadata_json || $3::jsonb,
              updated_at = now()
-         WHERE zone_id = $1 AND id = $2 AND status NOT IN ('succeeded', 'canceled', 'timed_out', 'dead')
+         WHERE zone_id = $1 AND id = $2 AND status NOT IN ('succeeded', 'canceled', 'timed_out', 'dead', 'failed')
          ${INVOCATION_RETURNING}`,
         [zoneId, id, JSON.stringify(body.reason ? { cancel_reason: body.reason } : {})],
       )
       if (!rows[0]) {
         await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'invocation_not_found_or_terminal' })
+        return reply.code(409).send({ error: 'invocation_not_cancelable' })
       }
       await enqueueInvocationEvent(client, zoneId, rows[0].service_id, id, 'invocation.cancel_requested')
       await client.query('COMMIT')
@@ -207,30 +220,41 @@ async function getInvocationByKey(
   db: Queryable, zoneId: string, serviceId: string, idempotencyKey: string,
 ): Promise<unknown> {
   const { rows } = await db.query(
-    `${INVOCATION_SELECT} WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3`,
+    `${INVOCATION_SELECT} WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3 FOR SHARE`,
     [zoneId, serviceId, idempotencyKey],
   )
   return rows[0]
 }
 
-async function missingInvocationSession(
+interface SessionRef {
+  id: string
+  application_id: string
+}
+
+async function loadInvocationSessions(
   db: Queryable,
   zoneId: string,
   sourceId: string | null,
   targetId: string | null,
-): Promise<boolean> {
+): Promise<{ source?: SessionRef; target?: SessionRef } | null> {
   const ids = [sourceId, targetId].filter((v): v is string => Boolean(v))
-  if (ids.length === 0) return false
-  const { rows } = await db.query(
-    `SELECT id FROM agent_sessions
+  if (ids.length === 0) return {}
+  const { rows } = await db.query<SessionRef>(
+    `SELECT id, application_id FROM agent_sessions
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
+       AND ttl_seconds IS NOT NULL
        AND spawned_at + (ttl_seconds * interval '1 second') > now()
      FOR SHARE`,
     [zoneId, ids],
   )
-  return new Set(rows.map((row: { id: string }) => row.id)).size !== ids.length
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  if (byId.size !== ids.length) return null
+  return {
+    ...(sourceId ? { source: byId.get(sourceId) } : {}),
+    ...(targetId ? { target: byId.get(targetId) } : {}),
+  }
 }
 
 async function enqueueInvocationEvent(
