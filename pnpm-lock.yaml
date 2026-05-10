@@ -172,21 +172,8 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/caracalai-mcp/ts:
-    dependencies:
-      '@caracalai/identity':
-        specifier: workspace:*
-        version: link:../../identity/ts
-      '@caracalai/revocation':
-        specifier: workspace:*
-        version: link:../../revocation/ts
+  packages/connectors/cloudflare/ts:
     devDependencies:
-      '@types/express':
-        specifier: ^5.0.0
-        version: 5.0.6
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.12.2
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -194,19 +181,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/core/ts:
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.12.2
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
-
-  packages/framework-adaptor/agent-crewai/ts:
+  packages/connectors/crewai/ts:
     dependencies:
       '@caracalai/sdk':
         specifier: workspace:*
@@ -219,20 +194,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/framework-adaptor/agent-langchain/ts:
-    dependencies:
-      '@caracalai/sdk':
-        specifier: workspace:*
-        version: link:../../../sdk/ts
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
-
-  packages/framework-adaptor/mcp-express/ts:
+  packages/connectors/express/ts:
     dependencies:
       '@caracalai/identity':
         specifier: workspace:*
@@ -245,7 +207,7 @@ importers:
         version: link:../../../sdk/ts
       '@caracalai/transport-mcp':
         specifier: workspace:*
-        version: link:../../../transport-mcp/ts
+        version: link:../../../transport/mcp/ts
     devDependencies:
       '@types/express':
         specifier: ^5.0.0
@@ -260,14 +222,14 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/framework-adaptor/mcp-fastmcp/ts:
+  packages/connectors/fastmcp/ts:
     dependencies:
       '@caracalai/revocation':
         specifier: workspace:*
         version: link:../../../revocation/ts
       '@caracalai/transport-mcp':
         specifier: workspace:*
-        version: link:../../../transport-mcp/ts
+        version: link:../../../transport/mcp/ts
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -275,6 +237,47 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/connectors/langchain/ts:
+    dependencies:
+      '@caracalai/sdk':
+        specifier: workspace:*
+        version: link:../../../sdk/ts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
+
+  packages/connectors/postgres/ts:
+    dependencies:
+      pg:
+        specifier: ^8.14.1
+        version: 8.20.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/core/ts:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
   packages/identity/ts:
     dependencies:
@@ -319,15 +322,6 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/runtime-adaptor/cloudflare/ts:
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
-
   packages/sdk/ts:
     devDependencies:
       '@types/node':
@@ -340,7 +334,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@20.19.40)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/state-backend/tokencache-cloudflare/ts:
+  packages/transport/a2a/ts:
     dependencies:
       '@caracalai/oauth':
         specifier: workspace:*
@@ -353,43 +347,14 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
 
-  packages/state-backend/tokenstate-postgres/ts:
-    dependencies:
-      pg:
-        specifier: ^8.14.1
-        version: 8.20.0
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.12.2
-      '@types/pg':
-        specifier: ^8.11.10
-        version: 8.20.0
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
-  packages/transport-a2a/ts:
-    dependencies:
-      '@caracalai/oauth':
-        specifier: workspace:*
-        version: link:../../oauth/ts
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.12.2)(tsx@4.21.0)(yaml@2.8.4)
-
-  packages/transport-mcp/ts:
+  packages/transport/mcp/ts:
     dependencies:
       '@caracalai/identity':
         specifier: workspace:*
-        version: link:../../identity/ts
+        version: link:../../../identity/ts
       '@caracalai/revocation':
         specifier: workspace:*
-        version: link:../../revocation/ts
+        version: link:../../../revocation/ts
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
