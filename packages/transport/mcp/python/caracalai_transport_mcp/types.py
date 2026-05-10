@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-Principal = dict[str, Any]
+from caracalai_identity import Claims
+
+Principal = Claims
 
 ErrorCode = Literal[
     "missing_token",
@@ -16,6 +18,9 @@ ErrorCode = Literal[
     "invalid_zone",
     "insufficient_scope",
     "session_revoked",
+    "agent_required",
+    "delegation_required",
+    "chain_mismatch",
 ]
 
 

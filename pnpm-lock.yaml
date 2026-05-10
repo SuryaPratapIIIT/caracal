@@ -304,6 +304,9 @@ importers:
       '@caracalai/oauth':
         specifier: workspace:*
         version: link:../../../oauth/ts
+      '@caracalai/sdk':
+        specifier: workspace:*
+        version: link:../../../sdk/ts
     devDependencies:
       typescript:
         specifier: ^5.8.0
