@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import Fastify from 'fastify'
-import { v1Routes } from '../../../../../../apps/agent-coordinator/src/routes/v1.js'
+import { v1Routes } from '../../../../../../apps/coordinator/src/routes/v1.js'
 
 beforeAll(() => {
   process.env.ISSUER_URL ??= 'http://issuer.test'

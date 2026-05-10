@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
-import { delegationsRoutes } from '../../../../../../apps/agent-coordinator/src/routes/delegations.js'
+import { delegationsRoutes } from '../../../../../../apps/coordinator/src/routes/delegations.js'
 
 function buildApp() {
   const app = Fastify({ logger: false })

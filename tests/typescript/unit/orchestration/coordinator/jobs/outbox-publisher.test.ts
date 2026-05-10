@@ -4,7 +4,7 @@
 // Outbox publisher unit tests covering Redis stream delivery and retry state.
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { publishBatch, startOutboxPublisher } from '../../../../../../apps/agent-coordinator/src/jobs/outbox-publisher.js'
+import { publishBatch, startOutboxPublisher } from '../../../../../../apps/coordinator/src/jobs/outbox-publisher.js'
 
 beforeAll(() => {
   process.env.ISSUER_URL ??= 'http://issuer.test'

@@ -4,7 +4,7 @@
 // Deadline enforcer unit tests covering retry-aware transitions.
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { runDeadlineSweep } from '../../../../../../apps/agent-coordinator/src/jobs/deadline-enforcer.js'
+import { runDeadlineSweep } from '../../../../../../apps/coordinator/src/jobs/deadline-enforcer.js'
 
 beforeAll(() => {
   process.env.ISSUER_URL ??= 'http://issuer.test'

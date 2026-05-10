@@ -4,7 +4,7 @@
 // TTL sweeper unit tests covering leader election and cascade termination.
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { runTTLSweep } from '../../../../../../apps/agent-coordinator/src/jobs/ttl-sweeper.js'
+import { runTTLSweep } from '../../../../../../apps/coordinator/src/jobs/ttl-sweeper.js'
 
 beforeAll(() => {
   process.env.ISSUER_URL ??= 'http://issuer.test'
