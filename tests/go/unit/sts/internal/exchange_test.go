@@ -263,7 +263,11 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 // TestExchangePartialDeny verifies that partial OPA evaluation status causes HTTP 403.
 // This is the hard invariant: a partial result must never produce a token.
 func TestExchangePartialDeny(t *testing.T) {
-	credType := "public"
+	credType := "confidential"
+	hash, err := hashClientSecret("hunter2")
+	if err != nil {
+		t.Fatalf("hash secret: %v", err)
+	}
 	db := &stubDB{
 		app: &Application{
 			ID:                 "app1",
@@ -271,6 +275,7 @@ func TestExchangePartialDeny(t *testing.T) {
 			Name:               "Test App",
 			RegistrationMethod: "managed",
 			CredentialType:     &credType,
+			ClientSecretHash:   &hash,
 		},
 		resource: &Resource{
 			ID:         "res1",
@@ -306,7 +311,7 @@ result := {"decision": "partial", "evaluation_status": "partial", "determining_p
 		"grant_type":        {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":           {"zone1"},
 		"application_id":    {"app1"},
-		"client_assertion":  {"test-public-client-assertion"},
+		"client_assertion":  {"hunter2"},
 		"resource":          {"https://api.example.com"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token",
@@ -513,7 +518,11 @@ func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testi
 
 func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	now := time.Now()
-	credentialType := "public"
+	credentialType := "confidential"
+	hash, hashErr := hashClientSecret("hunter2")
+	if hashErr != nil {
+		t.Fatalf("hash secret: %v", hashErr)
+	}
 	boundResourceID := "res-bound"
 	source := &AgentSession{
 		ID:            "agent-src",
@@ -538,6 +547,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 			Name:               "Test App",
 			RegistrationMethod: "managed",
 			CredentialType:     &credentialType,
+			ClientSecretHash:   &hash,
 		},
 		resource: &Resource{
 			ID:         "res-other",
@@ -565,7 +575,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	_, _, code, apiErr := srv.exchange(context.Background(), TokenExchangeRequest{
 		ZoneID:           "zone1",
 		ApplicationID:    "app1",
-		ClientAssertion:  "test-public-client-assertion",
+		ClientAssertion:  "hunter2",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
 		AgentSessionID:   source.ID,

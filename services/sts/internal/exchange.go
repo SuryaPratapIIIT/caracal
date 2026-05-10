@@ -423,13 +423,7 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 			return nil, "", errSecretMismatch
 		}
 	} else if derefStr(app.CredentialType) == "public" {
-		if strings.TrimSpace(req.ClientAssertion) == "" {
-			return nil, "", fmt.Errorf("public client requires client_assertion (DPoP/private_key_jwt) — secretless flows are not yet supported")
-		}
-		// TODO(security/H): verify DPoP proof (RFC 9449) or private_key_jwt assertion against
-		// a registered JWK for this application, and bind the issued token via cnf.jkt.
-		// Until then, public clients still require a verifiable client_assertion to
-		// prevent unauthenticated token minting (Issue H).
+		return nil, "", fmt.Errorf("public clients are not supported: register a confidential application (client_secret) to issue tokens")
 	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
@@ -452,6 +446,7 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 		jwt.WithAudience(s.cfg.IssuerURL),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
+		jwt.WithLeeway(60*time.Second),
 	).ParseWithClaims(tokenStr, mc, func(*jwt.Token) (any, error) {
 		return pub, nil
 	})

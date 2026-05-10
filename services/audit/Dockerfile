@@ -25,4 +25,5 @@ FROM alpine:3.22@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e8939
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /audit /audit
 USER 65532:65532
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- "http://127.0.0.1:${PORT:-9090}/health" || exit 1
 ENTRYPOINT ["/audit"]
