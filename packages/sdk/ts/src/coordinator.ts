@@ -10,7 +10,20 @@ export interface CoordinatorClient {
   fetchImpl?: typeof fetch;
 }
 
-export type AgentKind = "service" | "instance" | "ephemeral";
+export const AgentKind = {
+  Service: "service",
+  Instance: "instance",
+  Ephemeral: "ephemeral",
+} as const;
+
+export type AgentKind = typeof AgentKind[keyof typeof AgentKind];
+
+export interface DelegationConstraints {
+  resources?: string[];
+  actions?: string[];
+  maxDepth?: number;
+  expiresAt?: string;
+}
 
 export interface SpawnRequest {
   zoneId: string;
@@ -33,7 +46,7 @@ export interface DelegationRequest {
   targetSessionId: string;
   receiverApplicationId: string;
   scopes: string[];
-  constraints?: Record<string, unknown>;
+  constraints?: DelegationConstraints;
   ttlSeconds?: number;
 }
 
@@ -73,7 +86,7 @@ export async function spawnAgent(
     application_id: req.applicationId,
     session_sid: req.sessionSid,
     parent_id: req.parentId,
-    kind: req.kind ?? "instance",
+    kind: req.kind ?? AgentKind.Instance,
     ttl_seconds: req.ttlSeconds,
     metadata: req.metadata,
   });
