@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Mapping
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Mapping
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -18,13 +18,13 @@ import httpx
 from .context import (
     CaracalContext,
     _ctx_var,
+    current,
     from_envelope,
     to_envelope,
-    try_current,
 )
-from .coordinator import AgentKind, CoordinatorClient
+from .coordinator import AgentKind, CoordinatorClient, DelegationConstraints
 from .envelope import decode_envelope, to_headers
-from .primitives import with_agent, with_delegation
+from .primitives import LifecycleHook, delegate, spawn
 
 if TYPE_CHECKING:
     from .http import ASGIApp, CaracalASGIMiddleware
@@ -44,7 +44,7 @@ class CaracalConfig:
     subject_token: str
     gateway_url: str | None = None
     resources: list[ResourceBinding] = field(default_factory=list)
-    default_kind: AgentKind = "instance"
+    default_kind: AgentKind = AgentKind.INSTANCE
     default_ttl_seconds: int | None = None
 
 
@@ -69,6 +69,8 @@ def _parse_resource_bindings(raw: str | None) -> list[ResourceBinding]:
 class Caracal:
     def __init__(self, config: CaracalConfig) -> None:
         self.config = config
+        self._agent_start_hooks: list[LifecycleHook] = []
+        self._agent_end_hooks: list[LifecycleHook] = []
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Caracal":
@@ -93,8 +95,18 @@ class Caracal:
             )
         )
 
+    def on_agent_start(self, cb: LifecycleHook) -> None:
+        self._agent_start_hooks.append(cb)
+
+    def on_agent_end(self, cb: LifecycleHook) -> None:
+        self._agent_end_hooks.append(cb)
+
+    async def _fire(self, hooks: list[LifecycleHook], ctx: CaracalContext) -> None:
+        for h in hooks:
+            await h(ctx)
+
     @asynccontextmanager
-    async def run(
+    async def spawn(
         self,
         *,
         kind: AgentKind | None = None,
@@ -104,7 +116,13 @@ class Caracal:
         metadata: dict[str, Any] | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
-        async with with_agent(
+        on_start: LifecycleHook | None = (
+            (lambda c: self._fire(self._agent_start_hooks, c)) if self._agent_start_hooks else None
+        )
+        on_end: LifecycleHook | None = (
+            (lambda c: self._fire(self._agent_end_hooks, c)) if self._agent_end_hooks else None
+        )
+        async with spawn(
             coordinator=self.config.coordinator,
             zone_id=self.config.zone_id,
             application_id=self.config.application_id,
@@ -115,6 +133,8 @@ class Caracal:
             ttl_seconds=ttl_seconds if ttl_seconds is not None else self.config.default_ttl_seconds,
             metadata=metadata,
             trace_id=trace_id,
+            on_agent_start=on_start,
+            on_agent_end=on_end,
         ) as ctx:
             yield ctx
 
@@ -125,10 +145,10 @@ class Caracal:
         to: str,
         to_application_id: str,
         scopes: list[str],
-        constraints: dict[str, Any] | None = None,
+        constraints: DelegationConstraints | None = None,
         ttl_seconds: int | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
-        async with with_delegation(
+        async with delegate(
             coordinator=self.config.coordinator,
             to_agent_session_id=to,
             to_application_id=to_application_id,
@@ -139,7 +159,7 @@ class Caracal:
             yield ctx
 
     def headers(self) -> dict[str, str]:
-        ctx = try_current()
+        ctx = current()
         if ctx is None:
             from .envelope import Envelope
 
@@ -172,14 +192,8 @@ class Caracal:
         finally:
             _ctx_var.reset(token)
 
-    def context(self) -> CaracalContext:
-        ctx = try_current()
-        if ctx is None:
-            raise RuntimeError("Caracal context is not bound on this execution path")
-        return ctx
-
-    def try_context(self) -> CaracalContext | None:
-        return try_current()
+    def current(self) -> CaracalContext | None:
+        return current()
 
     def middleware(self) -> Callable[[ASGIApp], CaracalASGIMiddleware]:
         from .http import CaracalASGIMiddleware
@@ -191,9 +205,10 @@ class Caracal:
 
         return factory
 
-    def httpx_client(self, **kwargs: Any) -> httpx.AsyncClient:
+    def transport(self, **kwargs: Any) -> httpx.AsyncClient:
         """Returns an httpx.AsyncClient that auto-injects the envelope on every request
-        and rewrites resource-bound calls through the configured Caracal gateway."""
+        and rewrites resource-bound calls through the configured Caracal gateway. Pass
+        to any provider SDK that accepts a custom httpx client."""
         outer = self
 
         class _CaracalAuth(httpx.Auth):
