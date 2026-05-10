@@ -103,7 +103,7 @@ jobs:
             typescript=true
           fi
 
-          if [[ "$run_all" == 'true' ]] || grep -Eq '^(go\.work|go\.work\.sum|tests/go/|services/(audit|gateway|sts)/|packages/(core/go|identity/go|revocation/go|transport-mcp/go|framework-adaptor/mcp-nethttp/go)/|apps/agent-coordinator/relay/)' changed-files.txt || grep -Eq '\.go$|go\.mod$' changed-files.txt; then
+          if [[ "$run_all" == 'true' ]] || grep -Eq '^(go\.work|go\.work\.sum|tests/go/|services/(audit|gateway|sts)/|packages/(core/go|identity/go|revocation/go|transport-mcp/go|framework-adaptor/mcp-nethttp/go)/|apps/coordinator/relay/)' changed-files.txt || grep -Eq '\.go$|go\.mod$' changed-files.txt; then
             go=true
           fi
 
@@ -133,7 +133,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       STS_URL: http://localhost:3001
       ISSUER_URL: http://localhost:4000
-      AGENT_COORDINATOR_AUDIENCE: caracal-agent-coordinator
+      AGENT_COORDINATOR_AUDIENCE: caracal-coordinator
       AGENT_COORDINATOR_SCOPE: agent:coordinate
     steps:
       - name: Checkout
@@ -178,7 +178,7 @@ jobs:
           pnpm --dir packages/state-backend/tokencache-cloudflare/ts build
           pnpm --dir packages/runtime-adaptor/cloudflare/ts build
           pnpm --dir apps/api build
-          pnpm --dir apps/agent-coordinator build
+          pnpm --dir apps/coordinator build
 
       - name: Run lint scripts
         run: pnpm -r --if-present lint
@@ -210,7 +210,7 @@ jobs:
             tests/typescript/contract/api \
             tests/typescript/fuzz/api \
             tests/typescript/integration/api
-          run_pkg apps/agent-coordinator agent-coordinator tests/typescript/unit/orchestration/agent-coordinator
+          run_pkg apps/coordinator coordinator tests/typescript/unit/orchestration/coordinator
           run_pkg apps/cli cli tests/typescript/unit/cli
           run_pkg apps/tui tui tests/typescript/unit/tui
           run_pkg packages/core/ts core tests/typescript/unit/shared
@@ -271,7 +271,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage/go
-          go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/agent-coordinator/relay/... ./packages/transport-mcp/go/... ./packages/framework-adaptor/mcp-nethttp/go/...
+          go test -race -covermode=atomic -coverprofile=coverage/go/coverage.out ./packages/core/go/... ./services/sts/... ./services/audit/... ./services/gateway/... ./apps/coordinator/relay/... ./packages/transport-mcp/go/... ./packages/framework-adaptor/mcp-nethttp/go/...
           go tool cover -func=coverage/go/coverage.out
 
       - name: Upload Go coverage artifact

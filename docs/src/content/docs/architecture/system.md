@@ -7,7 +7,7 @@ Caracal is split into three planes, each running as its own service.
 
 ## Planes
 
-### Control plane — agent-coordinator
+### Control plane — coordinator
 
 Runs agent sessions, delegations, and identity binding. The SDK calls it for
 `run`, `delegate`, and `bindFromHeaders`. It has no role on the data path.
@@ -62,7 +62,7 @@ responses.
 | Provider call **not** registered | bypasses | SDK has no binding; app calls direct with its own creds |
 | Direct call to a Caracal-aware backend | required if registered | Registration drives gateway routing |
 | MCP via `transport-mcp` | through | Transport delegates to SDK fetch |
-| Agent-to-agent (A2A) | not gateway | A2A goes via agent-coordinator + delegation tokens |
+| Agent-to-agent (A2A) | not gateway | A2A goes via coordinator + delegation tokens |
 | Coordinator API (`run`, `delegate`, …) | bypasses | Gateway has no control-plane role |
 | STS `/oauth/2/token` | bypasses | Gateway is the caller |
 | Health, audit, internal admin | bypasses | Different services |
@@ -93,7 +93,7 @@ OSS services use the 808x range. The enterprise stack uses 8090–8099.
 
 | Service | Port |
 |---|---|
-| agent-coordinator | 8080 |
+| coordinator | 8080 |
 | gateway | 8081 |
 | sts | 8082 |
 | audit | 8083 |
