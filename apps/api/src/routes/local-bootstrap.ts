@@ -194,17 +194,8 @@ export const localBootstrapRoutes: FastifyPluginAsync = async (fastify) => {
 function isLoopback(remote: string): boolean {
   if (!remote) return false
   const addr = remote.startsWith('::ffff:') ? remote.slice(7) : remote
-  if (addr === '127.0.0.1' || addr === '::1' || addr.startsWith('127.')) return true
-  return isPrivateIPv4(addr)
-}
-
-function isPrivateIPv4(addr: string): boolean {
-  const m = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/)
+  if (addr === '::1') return true
+  const m = addr.match(/^(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)
   if (!m) return false
-  const a = Number(m[1])
-  const b = Number(m[2])
-  if (a === 10) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  return false
+  return Number(m[1]) === 127
 }

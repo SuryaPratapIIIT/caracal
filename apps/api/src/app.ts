@@ -7,6 +7,7 @@ import Fastify from 'fastify'
 import swagger from '@fastify/swagger'
 import swaggerUI from '@fastify/swagger-ui'
 import { randomUUID } from 'node:crypto'
+import { ZodError } from 'zod'
 import type { Config } from './config.js'
 import type { DB } from './db.js'
 import type { RedisClient } from './redis.js'
@@ -54,6 +55,17 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   app.decorate('db', db)
   app.decorate('redis', redis)
+
+  app.setErrorHandler((err, req, reply) => {
+    if (err instanceof ZodError) {
+      reply.code(400).send({ error: 'invalid_body', issues: err.issues.map((i) => ({ path: i.path, message: i.message })) })
+      return
+    }
+    req.log.error({ err }, 'unhandled route error')
+    const status = (err as { statusCode?: number }).statusCode
+    reply.code(typeof status === 'number' && status >= 400 && status < 600 ? status : 500)
+      .send({ error: 'internal_error' })
+  })
 
   app.addHook('onSend', async (req, reply, payload) => {
     reply.header('x-request-id', req.id)
